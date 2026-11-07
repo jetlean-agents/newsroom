@@ -15,13 +15,19 @@ export async function POST(req: Request) {
   }
 
   const payload = await getPayloadClient()
+  const article = await payload
+    .findByID({ collection: 'articles', id: body.articleId })
+    .catch(() => null)
+  if (!article) {
+    return NextResponse.json({ ok: false, reason: 'article not found' }, { status: 404 })
+  }
+
   await payload.create({
     collection: 'analytics_events',
     data: { article: body.articleId, kind: body.kind },
   })
 
   if (body.kind === 'scroll_100') {
-    const article = await payload.findByID({ collection: 'articles', id: body.articleId })
     await payload.update({
       collection: 'articles',
       id: body.articleId,
