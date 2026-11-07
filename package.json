@@ -21,6 +21,7 @@
     "@payloadcms/next": "3.37.0",
     "@payloadcms/richtext-lexical": "3.37.0",
     "cross-env": "7.0.3",
+    "fast-xml-parser": "^5.12.0",
     "graphql": "16.9.0",
     "next": "15.5.29",
     "payload": "3.37.0",
@@ -28,7 +29,8 @@
     "pg-boss": "9.0.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "sharp": "0.33.5"
+    "sharp": "0.33.5",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

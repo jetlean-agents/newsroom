@@ -1,5 +1,7 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
+import { thinPageRobotsMeta } from '@/lib/env'
 import type { Pool } from 'pg'
 
 interface SearchRow {
@@ -9,6 +11,9 @@ interface SearchRow {
   lead: string
   published_at: string | null
 }
+
+// tech-spec.md §8: internal search is never indexed, even once the site is otherwise indexable.
+export const metadata: Metadata = { robots: thinPageRobotsMeta() }
 
 export default async function SearchPage({
   searchParams,

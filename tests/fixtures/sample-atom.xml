@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Test Outlet C (Atom)</title>
+  <entry>
+    <title>Government approves next year's budget</title>
+    <link rel="alternate" href="https://outlet-c.example.com/entry/budget-approved" />
+    <published>2026-11-06T10:30:00Z</published>
+    <summary>English-language coverage of the same budget decision.</summary>
+  </entry>
+</feed>

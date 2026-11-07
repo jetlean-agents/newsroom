@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+  <title>Test Outlet A</title>
+  <link>https://outlet-a.example.com</link>
+  <item>
+    <title>Уряд ухвалив новий бюджет на наступний рік</title>
+    <link>https://outlet-a.example.com/news/budget-2027?utm_source=rss</link>
+    <pubDate>Fri, 06 Nov 2026 10:00:00 GMT</pubDate>
+    <description>Коротко про рішення уряду щодо бюджету.</description>
+  </item>
+  <item>
+    <title>НБУ підвищив облікову ставку</title>
+    <link>https://outlet-a.example.com/news/nbu-rate</link>
+    <pubDate>Fri, 06 Nov 2026 09:00:00 GMT</pubDate>
+    <description>НБУ повідомив про зміну ставки.</description>
+  </item>
+</channel>
+</rss>

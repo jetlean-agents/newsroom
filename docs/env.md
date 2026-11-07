@@ -8,6 +8,13 @@
 | `SITE_NAME` | yes | `Newsroom (sandbox)` | Brand name is not finalized yet; keep generic. |
 | `NOINDEX` | yes | `true` | While `true`: `noindex,nofollow` on every page, `X-Robots-Tag: noindex` on sitemap/feed, `Disallow: /` in robots.txt. Must stay `true` for every sandbox deployment. |
 | `ANALYTICS_ENABLED` | no | `false` | Enables the `/api/analytics/scroll` endpoint and page_views tracking. No cookies/consent banner either way. |
-| `TAG_NOINDEX_THRESHOLD` | no | `3` | Tags with fewer published articles than this are marked `noindex`. |
+| `TAG_NOINDEX_THRESHOLD` | no | `30` | Tags with fewer published articles than this are marked `noindex` (tech-spec.md §8: thin tags need >= 30 articles). No tag detail page exists yet in the frontend (stage 1 scaffold) — this only drives the `Tags.noindex` field today. |
+| `INGEST_ENABLED` | no | `false` | Master switch for `npm run worker`'s ingestion jobs (poll/dedup/draft). `false` = worker only runs the pre-existing `recompute-popular` job. See `docs/editorial-pipeline.md`. |
+| `INGEST_INCLUDE_CANDIDATES` | no | `false` | Also autopoll `status: candidate` sources from `config/sources.yaml` (normally excluded — needs manual review first). |
+| `EVENT_CONFIRMATION_MIN_SOURCES` | no | `2` | Distinct publishers an event cluster needs before a draft article is created. |
+| `AI_PROVIDER` | no | `none` | Draft-assist provider. `none` keeps drafts a plain source digest with no AI-written prose. Do not point this at a real provider, and do not set `AI_API_KEY`, without Roman's explicit sign-off (see epic FACT-164). |
+| `AI_API_KEY` | no | (unset) | Only a name reserved for the future AI provider; no value is ever committed. |
+| `UNSPLASH_ACCESS_KEY` | no | (unset) | Enables the Unsplash image-search provider (`src/lib/images/providers.ts`). Unset = provider disabled, no error. |
+| `PEXELS_API_KEY` | no | (unset) | Same, for Pexels. Wikimedia Commons needs no key and is always enabled. |
 
 No secret values are committed anywhere in this repo — only variable names, in `.env.example`.

@@ -12,6 +12,9 @@ import { Media } from './collections/Media'
 import { Pages } from './collections/Pages'
 import { Articles } from './collections/Articles'
 import { AnalyticsEvents } from './collections/AnalyticsEvents'
+import { Sources } from './collections/Sources'
+import { SourceItems } from './collections/SourceItems'
+import { Events } from './collections/Events'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -21,7 +24,7 @@ export default buildConfig({
     user: Users.slug,
   },
   editor: lexicalEditor({}),
-  collections: [Users, Rubrics, Tags, Media, Pages, Articles, AnalyticsEvents],
+  collections: [Users, Rubrics, Tags, Media, Pages, Articles, AnalyticsEvents, Sources, SourceItems, Events],
   secret: process.env.PAYLOAD_SECRET || 'dev-secret-change-me',
   sharp,
   // This sandbox host blocks/stalls outbound egress to telemetry.payloadcms.com,
