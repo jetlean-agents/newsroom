@@ -1,9 +1,10 @@
 ## Newsroom (sandbox, working name)
 
 Independent news resource scaffold for a Ukrainian-language audience. Brand, domain and
-final focus are not chosen yet — see the project description. This repo is the CMS/site
-foundation only: ingestion/rewrite pipelines and real editorial content are out of scope
-(stage 2+).
+final focus are not chosen yet — see the project description. Stage 1 built the CMS/site
+foundation; stage 2 (this repo, current state) adds ingestion, dedup and the
+source-to-draft editorial pipeline — see `docs/editorial-pipeline.md`. Everything it
+produces still needs a human author + editor before it's ever public; nothing auto-publishes.
 
 ### Stack
 
@@ -16,7 +17,8 @@ foundation only: ingestion/rewrite pipelines and real editorial content are out 
 ### Collections
 
 `Articles`, `Rubrics`, `Tags`, `Media`, `Pages`, `Users` (admin/editor/author roles),
-`AnalyticsEvents` (internal, scroll-depth + "next article" click tracking).
+`AnalyticsEvents` (internal, scroll-depth + "next article" click tracking),
+`Sources`, `SourceItems`, `Events` (ingestion/dedup — see `docs/editorial-pipeline.md`).
 
 Publication is a strict state machine: `draft -> in_review -> published -> unpublished`.
 Only `editor`/`admin` can publish, and only from `in_review` — see
@@ -32,7 +34,8 @@ sandbox project, not a public site.
 ### Tests
 
 ```bash
-npm run test:unit   # vitest — slug stability, tag-noindex threshold, schema shape
+npm run test:unit   # vitest — slug stability, tag-noindex threshold, schema shape,
+                     # ingest dedup/clustering (canonicalize/hash/simhash + feed fixtures)
 npm run test:e2e    # playwright — homepage + article page smoke test
 ```
 

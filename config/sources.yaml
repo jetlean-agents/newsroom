@@ -1,0 +1,679 @@
+# Реестр источников для ingestion (FACT-167)
+#
+# Контракт полей для Developer-задачи ingestion (stage 2):
+#   id               — уникальный slug
+#   name             — человекочитаемое имя
+#   type             — rss | api | press
+#   status           — verified  = проверено живым запросом (curl, Chrome UA, с Contabo) в этом прогоне,
+#                                   код ответа 200 + корректный формат (RSS/Atom/JSON) — идёт в автополлинг
+#                       candidate = фид не отвечает 200 нашему curl (антибот/Cloudflare/Radware/404/403)
+#                                   ИЛИ формат подтверждён, но условия реюза не подтверждены —
+#                                   в автополлинг НЕ идёт, требуется ручная проверка/эскалация
+#   url              — URL фида/API
+#   language         — uk | en | multi
+#   topics           — список тем
+#   terms_url        — страница с условиями использования / лицензией
+#   reuse_terms      — что конкретно разрешено
+#   attribution_required — true/false
+#   rate_limit       — ограничение на частоту запросов (если применимо)
+#   poll_interval    — рекомендуемый интервал опроса
+#   robots_ok        — true | false | not_applicable (+ причина в notes, если false)
+#   last_verified    — дата проверки живым запросом в ЭТОМ прогоне: 2026-11-07 (curl -A "<Chrome UA>" -L -m 15, с Contabo)
+#   notes            — HTTP-код, content-type, оговорки, эскалации
+
+sources:
+  # ===================== VERIFIED (≥25, живой фид, curl + Chrome UA, Contabo) =====================
+
+  - id: rada_news_uk
+    name: "Верховна Рада України — стрічка новин"
+    type: rss
+    status: verified
+    url: "https://www.rada.gov.ua/rss/news.xml"
+    language: uk
+    topics: [politics, legislation]
+    terms_url: "https://www.rada.gov.ua"
+    reuse_terms: "Заголовок + факт + ссылка на rada.gov.ua; публичная информация органа власти, короткое цитирование + ссылка."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15 мин"
+    poll_interval: "15m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/xml, валидный RSS 2.0."
+
+  - id: ukrinform_lastnews
+    name: "Укрінформ — стрічка останніх новин"
+    type: rss
+    status: verified
+    url: "https://www.ukrinform.ua/rss/block-lastnews"
+    language: uk
+    topics: [general, politics, economy, society]
+    terms_url: "https://www.ukrinform.ua/page-about-us"
+    reuse_terms: "Государственное информагентство: короткая цитата (до 1-2 предложений) + обязательная ссылка на ukrinform.ua; без копирования полного текста и без использования как платной wire-подписки."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/10 мин"
+    poll_interval: "10m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml. Зеркало ukrinform.net отдаёт тот же фид (не дублируем как отдельный источник)."
+
+  - id: prozorro_tenders_api
+    name: "Prozorro — публичный API тендеров"
+    type: api
+    status: verified
+    url: "https://public.api.openprocurement.org/api/2.5/tenders"
+    language: uk
+    topics: [procurement, public-spending]
+    terms_url: "https://prozorro.gov.ua/open-data"
+    reuse_terms: "Открытые государственные данные о закупках; можно использовать факты/суммы/статусы с указанием источника. Без ключа, публичный read-only API."
+    attribution_required: true
+    rate_limit: "офиц. рекомендация: не чаще 1 запрос/сек, постраничный обход через offset"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/json. Пагинация через параметры offset/descending — см. доку openprocurement API 2.5 перед ingestion."
+
+  - id: data_gov_ua_ckan
+    name: "data.gov.ua — CKAN API єдиного державного порталу відкритих даних"
+    type: api
+    status: verified
+    url: "https://data.gov.ua/api/3/action/package_search?rows=1"
+    language: uk
+    topics: [open-data, government]
+    terms_url: "https://data.gov.ua/pages/vidkryti-dani"
+    reuse_terms: "CC BY — свободное использование датасетов с обязательной атрибуцией источника и ссылкой."
+    attribution_required: true
+    rate_limit: "не публикуется явно; умеренная частота опроса"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/json;charset=utf-8, CKAN package_search, 36759 датасетов на момент проверки. МВС CSV регистраций ТЗ ищется через этот же API (package_search) — конкретный id пакета нужно подобрать отдельно, package_show по предполагаемому id вернул 404 в этом прогоне."
+
+  - id: nbu_exchange_api
+    name: "НБУ — офіційний курс валют (NBUStatService)"
+    type: api
+    status: verified
+    url: "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"
+    language: uk
+    topics: [economy, finance]
+    terms_url: "https://bank.gov.ua/ua/open-data"
+    reuse_terms: "Официальные открытые данные НБУ; курсы валют можно публиковать с указанием источника и даты."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/час (курс обновляется раз в день)"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/json; charset=utf-8. Основной сайт bank.gov.ua/rss и bank.gov.ua/www отдают антибот-страницу (не проверялось для этого эндпоинта — статслужба НБУ на отдельном поддомене, антибота нет)."
+
+  - id: mepr_gov_ua_rss
+    name: "Міністерство захисту довкілля та природних ресурсів України — новини"
+    type: rss
+    status: verified
+    url: "https://mepr.gov.ua/rss"
+    language: uk
+    topics: [environment, government]
+    terms_url: "https://mepr.gov.ua"
+    reuse_terms: "Публичная информация органа власти: заголовок + факт + ссылка."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/30 мин"
+    poll_interval: "30m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml."
+
+  - id: me_gov_ua_rss
+    name: "Міністерство економіки України — новини"
+    type: rss
+    status: verified
+    url: "https://www.me.gov.ua/rss"
+    language: uk
+    topics: [economy, government]
+    terms_url: "https://www.me.gov.ua"
+    reuse_terms: "Публичная информация органа власти: заголовок + факт + ссылка."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/30 мин"
+    poll_interval: "30m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/xml."
+
+  - id: un_news_all
+    name: "UN News — всі новини"
+    type: rss
+    status: verified
+    url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml"
+    language: en
+    topics: [world, un]
+    terms_url: "https://www.un.org/en/about-us/copyright"
+    reuse_terms: "Материалы ООН для СМИ: краткое цитирование + ссылка на news.un.org, без выдачи за собственный репортаж."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/30 мин"
+    poll_interval: "30m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml."
+
+  - id: who_news_english
+    name: "WHO — News (English)"
+    type: rss
+    status: verified
+    url: "https://www.who.int/rss-feeds/news-english.xml"
+    language: en
+    topics: [health]
+    terms_url: "https://www.who.int/about/policies/publishing/copyright"
+    reuse_terms: "WHO copyright policy: короткая цитата + ссылка; полный репост запрещён без разрешения."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml."
+
+  - id: iaea_topnews
+    name: "IAEA — Top News"
+    type: rss
+    status: verified
+    url: "https://www.iaea.org/feeds/topnews"
+    language: en
+    topics: [nuclear, energy, safety]
+    terms_url: "https://www.iaea.org/about/terms-of-use"
+    reuse_terms: "Короткая цитата + ссылка на iaea.org, без репоста полного текста."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml."
+
+  - id: ec_presscorner_rss
+    name: "European Commission — Press Corner (RSS)"
+    type: rss
+    status: verified
+    url: "https://ec.europa.eu/commission/presscorner/api/rss?type=0"
+    language: en
+    topics: [eu, politics, economy]
+    terms_url: "https://commission.europa.eu/legal-notice_en#copyright-notice"
+    reuse_terms: "EU Decision 2011/833/EU: реюз документов ЕК разрешён при условии указания источника, кроме случаев, где указано иное для конкретного материала."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/30 мин"
+    poll_interval: "30m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml;charset=UTF-8."
+
+  - id: ecb_press_rss
+    name: "European Central Bank — Press releases (RSS)"
+    type: rss
+    status: verified
+    url: "https://www.ecb.europa.eu/rss/press.html"
+    language: en
+    topics: [finance, economy]
+    terms_url: "https://www.ecb.europa.eu/home/disclaimer/html/index.en.html"
+    reuse_terms: "ECB copyright notice: воспроизведение с указанием источника для некоммерческих/образовательных целей; факты по пресс-релизам можно пересказывать своими словами + ссылка."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml."
+
+  - id: eurostat_api
+    name: "Eurostat — Statistics API (dissemination)"
+    type: api
+    status: verified
+    url: "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/demo_pjan"
+    language: en
+    topics: [statistics, eu]
+    terms_url: "https://ec.europa.eu/eurostat/web/main/help/copyright-notice"
+    reuse_terms: "Eurostat copyright notice: свободное использование статистики с указанием источника (Eurostat), кроме отдельно оговорённых датасетов."
+    attribution_required: true
+    rate_limit: "офиц. рекомендация: не злоупотреблять, использовать bulk download для больших объёмов"
+    poll_interval: "1d"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/json. Пример запроса — demo_pjan (демография); для конкретных тем нужен свой dataset code."
+
+  - id: bbc_ukrainian_rss
+    name: "BBC News Україна — RSS"
+    type: rss
+    status: verified
+    url: "https://www.bbc.com/ukrainian/index.xml"
+    language: uk
+    topics: [general, world]
+    terms_url: "https://www.bbc.co.uk/usingthebbc/terms/can-i-reuse-content-from-a-bbc-website/"
+    reuse_terms: "BBC terms of use: краткое цитирование (несколько предложений) + обязательная ссылка на bbc.com; полный репост статей запрещён."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/15 мин"
+    poll_interval: "15m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=utf-8. Зеркало feeds.bbci.co.uk/ukrainian/rss.xml отдаёт тот же контент."
+
+  - id: euronews_rss
+    name: "Euronews — Latest News (RSS)"
+    type: rss
+    status: verified
+    url: "https://www.euronews.com/rss"
+    language: en
+    topics: [world, general]
+    terms_url: "https://www.euronews.com/terms-conditions"
+    reuse_terms: "Terms of use: краткое цитирование + ссылка на euronews.com; коммерческое использование полного текста запрещено."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/15 мин"
+    poll_interval: "15m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8."
+
+  - id: google_blog_rss
+    name: "The Keyword (Google Blog) — RSS"
+    type: press
+    status: verified
+    url: "https://blog.google/rss/"
+    language: en
+    topics: [tech]
+    terms_url: "https://about.google/brand-resource-center/"
+    reuse_terms: "Корпоративный press-блог: пресс-материалы предназначены для пересказа в СМИ, факты своими словами + ссылка на источник; товарные знаки/лого — по бренд-гайду Google."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/xml; charset=utf-8."
+
+  - id: apple_newsroom_rss
+    name: "Apple Newsroom — RSS"
+    type: press
+    status: verified
+    url: "https://www.apple.com/newsroom/rss-feed.rss"
+    language: en
+    topics: [tech]
+    terms_url: "https://www.apple.com/legal/internet-services/terms/site.html"
+    reuse_terms: "Пресс-релизы предназначены для СМИ: факты/цитаты представителей компании своими словами + ссылка на apple.com/newsroom."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml;charset=UTF-8."
+
+  - id: microsoft_news_rss
+    name: "Microsoft News Center — RSS"
+    type: press
+    status: verified
+    url: "https://news.microsoft.com/feed/"
+    language: en
+    topics: [tech]
+    terms_url: "https://news.microsoft.com/terms-of-use/"
+    reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на news.microsoft.com."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8."
+
+  - id: mozilla_blog_rss
+    name: "Mozilla Blog — RSS"
+    type: press
+    status: verified
+    url: "https://blog.mozilla.org/en/feed/"
+    language: en
+    topics: [tech]
+    terms_url: "https://www.mozilla.org/en-US/about/legal/terms/mozilla/"
+    reuse_terms: "Контент под Creative Commons (часть материалов CC BY 3.0, см. конкретный пост) либо факты своими словами + ссылка."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8."
+
+  - id: github_blog_rss
+    name: "The GitHub Blog — RSS"
+    type: press
+    status: verified
+    url: "https://github.blog/feed/"
+    language: en
+    topics: [tech]
+    terms_url: "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
+    reuse_terms: "Факты своими словами + ссылка на github.blog."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8."
+
+  - id: android_developers_blog_atom
+    name: "Android Developers Blog — Atom"
+    type: press
+    status: verified
+    url: "https://android-developers.googleblog.com/feeds/posts/default"
+    language: en
+    topics: [tech]
+    terms_url: "https://developer.android.com/terms"
+    reuse_terms: "Факты своими словами + ссылка на источник."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: промежуточные редиректы отдают text/html, финальный ответ — text/xml, HTTP 200, валидный Atom."
+
+  - id: cloudflare_blog_rss
+    name: "Cloudflare Blog — RSS"
+    type: press
+    status: verified
+    url: "https://blog.cloudflare.com/rss/"
+    language: en
+    topics: [tech]
+    terms_url: "https://www.cloudflare.com/website-terms/"
+    reuse_terms: "Факты своими словами + ссылка на blog.cloudflare.com."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=utf-8."
+
+  - id: meta_newsroom_rss
+    name: "Meta Newsroom — RSS"
+    type: press
+    status: verified
+    url: "https://about.fb.com/news/feed/"
+    language: en
+    topics: [tech]
+    terms_url: "https://about.meta.com/brand/resources/meta/company-brand/"
+    reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на about.fb.com/news."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8."
+
+  - id: samsung_newsroom_rss
+    name: "Samsung Newsroom (Global) — RSS"
+    type: press
+    status: verified
+    url: "https://news.samsung.com/global/feed"
+    language: en
+    topics: [tech]
+    terms_url: "https://news.samsung.com/global/terms-of-use"
+    reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на news.samsung.com."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8."
+
+  - id: spotify_newsroom_rss
+    name: "Spotify Newsroom — RSS"
+    type: press
+    status: verified
+    url: "https://newsroom.spotify.com/feed/"
+    language: en
+    topics: [tech, media]
+    terms_url: "https://www.spotify.com/legal/end-user-agreement/"
+    reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на newsroom.spotify.com."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8."
+
+  - id: aws_blog_rss
+    name: "AWS News Blog — RSS"
+    type: press
+    status: verified
+    url: "https://aws.amazon.com/blogs/aws/feed/"
+    language: en
+    topics: [tech]
+    terms_url: "https://aws.amazon.com/terms/"
+    reuse_terms: "Факты своими словами + ссылка на aws.amazon.com/blogs/aws."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml;charset=UTF-8."
+
+  # ===================== CANDIDATES (без автополлинга — требуют ручной проверки/эскалации) =====================
+
+  - id: kmu_gov_ua_rss
+    name: "Кабінет Міністрів України — новини"
+    type: press
+    status: candidate
+    url: "https://www.kmu.gov.ua/rss"
+    language: uk
+    topics: [government, politics]
+    terms_url: "https://www.kmu.gov.ua"
+    reuse_terms: "Публичная информация органа власти (если удастся подтвердить формат фида) — предварительно: заголовок + факт + ссылка."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl с Chrome UA: антибот-страница Radware Captcha (не 403/404, а интерактивная капча). Ручная проверка/альтернативный URL нужны; в автополлинг не включать."
+
+  - id: president_gov_ua
+    name: "Офіс Президента України — новини"
+    type: press
+    status: candidate
+    url: "https://www.president.gov.ua/news.rss"
+    language: uk
+    topics: [government, politics]
+    terms_url: "https://www.president.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения после разблокировки)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 403 Access Denied (похоже на Akamai). Блокировка не по robots/ToS, а антибот — фид не подтверждён этим прогоном."
+
+  - id: mof_gov_ua
+    name: "Міністерство фінансів України — новини"
+    type: press
+    status: candidate
+    url: "https://mof.gov.ua"
+    language: uk
+    topics: [finance, government]
+    terms_url: "https://mof.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "RSS-эндпоинт не найден / блокируется антиботом в этом прогоне. Кандидат на ручную проверку."
+
+  - id: bank_gov_ua_news
+    name: "Національний банк України — стрічка новин (сайт)"
+    type: press
+    status: candidate
+    url: "https://bank.gov.ua/ua/news"
+    language: uk
+    topics: [finance]
+    terms_url: "https://bank.gov.ua/ua/open-data"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (сам новостной RSS не подтверждён; статистический API НБУ — см. nbu_exchange_api, он verified)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "Новостного RSS на bank.gov.ua не найдено (404 на стандартных путях). Для новостей НБУ — кандидат на ручной мониторинг; для курсов/статистики использовать nbu_exchange_api."
+
+  - id: cvk_gov_ua
+    name: "Центральна виборча комісія — новини"
+    type: press
+    status: candidate
+    url: "https://www.cvk.gov.ua"
+    language: uk
+    topics: [elections, government]
+    terms_url: "https://www.cvk.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "RSS не проверен в этом прогоне (не было релевантного трафика для проверки антибота). Кандидат."
+
+  - id: moz_gov_ua
+    name: "Міністерство охорони здоров'я України — новини"
+    type: press
+    status: candidate
+    url: "https://moz.gov.ua"
+    language: uk
+    topics: [health, government]
+    terms_url: "https://moz.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: /rss вернул 404. Нужно искать корректный путь фида вручную."
+
+  - id: uz_gov_ua
+    name: "Укрзалізниця — новини"
+    type: press
+    status: candidate
+    url: "https://www.uz.gov.ua"
+    language: uk
+    topics: [transport, infrastructure]
+    terms_url: "https://www.uz.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "RSS не проверен в этом прогоне. Кандидат на ручную проверку."
+
+  - id: mfa_gov_ua
+    name: "МЗС України — новини"
+    type: press
+    status: candidate
+    url: "https://mfa.gov.ua"
+    language: uk
+    topics: [foreign-affairs, government]
+    terms_url: "https://mfa.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "RSS не проверен в этом прогоне. Кандидат."
+
+  - id: thedigital_gov_ua
+    name: "Мінцифри — новини"
+    type: press
+    status: candidate
+    url: "https://thedigital.gov.ua"
+    language: uk
+    topics: [digital, government]
+    terms_url: "https://thedigital.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: /rss вернул 404. Кандидат на ручную проверку правильного пути фида."
+
+  - id: ukrstat_gov_ua
+    name: "Державна служба статистики України"
+    type: press
+    status: candidate
+    url: "https://www.ukrstat.gov.ua"
+    language: uk
+    topics: [statistics, government]
+    terms_url: "https://www.ukrstat.gov.ua"
+    reuse_terms: "Предварительно: открытая статистика с атрибуцией (требует подтверждения доступности)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP Access Denied / таймаут в этом прогоне. Кандидат — часть данных может быть доступна через data.gov.ua (CKAN)."
+
+  - id: kyivcity_gov_ua
+    name: "КМДА (Київміськадміністрація) — новини"
+    type: press
+    status: candidate
+    url: "https://kyivcity.gov.ua"
+    language: uk
+    topics: [kyiv, government]
+    terms_url: "https://kyivcity.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: антибот-страница (Cloudflare \"Just a moment\"). Кандидат."
+
+  - id: hromadske_media
+    name: "Громадське (hromadske.ua)"
+    type: press
+    status: candidate
+    url: "https://hromadske.ua"
+    language: uk
+    topics: [general, media]
+    terms_url: "https://hromadske.ua"
+    reuse_terms: "Независимое СМИ, условия реюза не подтверждены — до ревью не использовать как источник автополлинга."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "Явного RSS не найдено (404 на стандартных путях)."
+
+  - id: ukrainska_pravda_rss
+    name: "Українська правда — RSS"
+    type: press
+    status: candidate
+    url: "https://www.pravda.com.ua/rss/"
+    language: uk
+    topics: [general, politics]
+    terms_url: "https://www.pravda.com.ua/about/"
+    reuse_terms: "Коммерческое медиа; фид технически отдаёт 200, но условия реюза контента (можно ли что-то кроме заголовка+ссылки) не подтверждены. Исключено из автополлинга до юридического ревью."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml — формат подтверждён, но это НЕ равно разрешению на реюз. Та же оговорка для дочерних изданий epravda.com.ua и life.pravda.com.ua (оба тоже отдают 200 тем же curl-запросом, тот же издательский дом)."
+
+  - id: tv24_ua_rss
+    name: "24 Канал (24tv.ua) — RSS"
+    type: press
+    status: candidate
+    url: "https://24tv.ua/rss/all.xml"
+    language: uk
+    topics: [general]
+    terms_url: "https://24tv.ua"
+    reuse_terms: "Коммерческое медиа; фид отдаёт 200, условия реюза не проверены — не включать в автополлинг без ревью условий использования."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-07"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=UTF-8. Терминология терминов использования на сайте не найдена в этом прогоне — эскалация перед включением."
+
+sources_summary:
+  verified_count: 26
+  candidate_count: 14
+  minimum_required: 25
+  note: >
+    26 источников со статусом verified прошли проверку живым запросом в этом прогоне
+    (curl -A "<Chrome/131 UA>" -L -m 15, с Contabo, НЕ WebFetch) — HTTP 200 и корректный
+    формат (RSS/Atom/JSON). TASS (tass.com) технически отдал 200, но не включён ни в
+    verified, ни в candidates: это российское государственное пропагандистское издание,
+    использование как источника для украинской аудитории неприемлемо по редакционной
+    политике, а не из-за технической проверки — не предлагать повторно без решения PO/Romana.

@@ -63,6 +63,7 @@ export const Articles: CollectionConfig = {
       ],
     },
     { name: 'cover', type: 'upload', relationTo: 'media' },
+    { name: 'event', type: 'relationship', relationTo: 'events', admin: { description: 'The ingestion event-cluster this draft was created from, if any.' } },
     { name: 'event_date', type: 'date', admin: { description: 'When the news event actually happened.' } },
     { name: 'published_at', type: 'date', admin: { readOnly: true } },
     {
@@ -96,6 +97,11 @@ export const Articles: CollectionConfig = {
       ],
     },
     { name: 'page_views', type: 'number', defaultValue: 0, admin: { readOnly: true, description: 'Used to rank "popular". Maintained by analytics + the recompute job.' } },
+    {
+      name: 'duplicate_warning',
+      type: 'text',
+      admin: { readOnly: true, description: 'Non-blocking: set when publishing if another article already covers this event.' },
+    },
   ],
   hooks: {
     beforeChange: [
@@ -121,6 +127,28 @@ export const Articles: CollectionConfig = {
           }
         }
 
+        return data
+      },
+      async ({ req, data, originalDoc }) => {
+        // Non-blocking duplicate check: warn (never block) when publishing an
+        // article whose event-cluster already has a different published article.
+        if (data.status === 'published' && originalDoc?.status !== 'published' && data.event) {
+          const eventId = typeof data.event === 'object' ? data.event.id : data.event
+          const existing = await req.payload.find({
+            collection: 'articles',
+            where: {
+              and: [
+                { event: { equals: eventId } },
+                { status: { equals: 'published' } },
+                ...(originalDoc?.id ? [{ id: { not_equals: originalDoc.id } }] : []),
+              ],
+            },
+            limit: 1,
+          })
+          data.duplicate_warning = existing.docs[0]
+            ? `Можливий дублікат: подію вже опубліковано у «${existing.docs[0].title}» (#${existing.docs[0].id}).`
+            : null
+        }
         return data
       },
     ],

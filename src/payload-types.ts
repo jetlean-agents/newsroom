@@ -74,6 +74,9 @@ export interface Config {
     pages: Page;
     articles: Article;
     analytics_events: AnalyticsEvent;
+    sources: Source;
+    'source-items': SourceItem;
+    events: Event;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
@@ -87,6 +90,9 @@ export interface Config {
     pages: PagesSelect<false> | PagesSelect<true>;
     articles: ArticlesSelect<false> | ArticlesSelect<true>;
     analytics_events: AnalyticsEventsSelect<false> | AnalyticsEventsSelect<true>;
+    sources: SourcesSelect<false> | SourcesSelect<true>;
+    'source-items': SourceItemsSelect<false> | SourceItemsSelect<true>;
+    events: EventsSelect<false> | EventsSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
@@ -288,6 +294,10 @@ export interface Article {
     | null;
   cover?: (number | null) | Media;
   /**
+   * The ingestion event-cluster this draft was created from, if any.
+   */
+  event?: (number | null) | Event;
+  /**
    * When the news event actually happened.
    */
   event_date?: string | null;
@@ -319,6 +329,32 @@ export interface Article {
    * Used to rank "popular". Maintained by analytics + the recompute job.
    */
   page_views?: number | null;
+  /**
+   * Non-blocking: set when publishing if another article already covers this event.
+   */
+  duplicate_warning?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events".
+ */
+export interface Event {
+  id: number;
+  /**
+   * Title of the earliest source item in the cluster — a label, not copy to publish verbatim.
+   */
+  title: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  source_count?: number | null;
+  /**
+   * True once >= EVENT_CONFIRMATION_MIN_SOURCES distinct publishers reported it.
+   */
+  independent_confirmation?: boolean | null;
+  status: 'new' | 'drafted' | 'dismissed';
+  draft_article?: (number | null) | Article;
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -328,6 +364,64 @@ export interface AnalyticsEvent {
   id: number;
   article: number | Article;
   kind: 'scroll_25' | 'scroll_50' | 'scroll_75' | 'scroll_100' | 'next_article_click';
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "sources".
+ */
+export interface Source {
+  id: number;
+  /**
+   * Matches `id` in config/sources.yaml.
+   */
+  source_key: string;
+  name: string;
+  type: 'rss' | 'api' | 'press';
+  /**
+   * From the registry: verified = autopoll-eligible, candidate = needs manual confirmation.
+   */
+  registry_status: 'verified' | 'candidate';
+  url: string;
+  /**
+   * Admin kill switch. A verified+enabled source is polled; a candidate still needs INGEST_INCLUDE_CANDIDATES=true as well.
+   */
+  enabled?: boolean | null;
+  poll_interval?: string | null;
+  etag?: string | null;
+  last_modified?: string | null;
+  last_polled_at?: string | null;
+  last_success_at?: string | null;
+  last_error?: string | null;
+  consecutive_errors?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-items".
+ */
+export interface SourceItem {
+  id: number;
+  source: number | Source;
+  title: string;
+  url: string;
+  canonical_url: string;
+  summary?: string | null;
+  published_at?: string | null;
+  fetched_at: string;
+  /**
+   * sha1(source_key::canonical_url) — identity for exact re-fetch dedup.
+   */
+  hash: string;
+  title_hash: string;
+  /**
+   * 64-bit simhash of the normalized title, stored as decimal string.
+   */
+  simhash: string;
+  cluster_status: 'unclustered' | 'clustered';
+  event?: (number | null) | Event;
   updatedAt: string;
   createdAt: string;
 }
@@ -365,6 +459,18 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'analytics_events';
         value: number | AnalyticsEvent;
+      } | null)
+    | ({
+        relationTo: 'sources';
+        value: number | Source;
+      } | null)
+    | ({
+        relationTo: 'source-items';
+        value: number | SourceItem;
+      } | null)
+    | ({
+        relationTo: 'events';
+        value: number | Event;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -528,6 +634,7 @@ export interface ArticlesSelect<T extends boolean = true> {
         id?: T;
       };
   cover?: T;
+  event?: T;
   event_date?: T;
   published_at?: T;
   updated_at?: T;
@@ -545,6 +652,7 @@ export interface ArticlesSelect<T extends boolean = true> {
         id?: T;
       };
   page_views?: T;
+  duplicate_warning?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -553,6 +661,62 @@ export interface ArticlesSelect<T extends boolean = true> {
 export interface AnalyticsEventsSelect<T extends boolean = true> {
   article?: T;
   kind?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "sources_select".
+ */
+export interface SourcesSelect<T extends boolean = true> {
+  source_key?: T;
+  name?: T;
+  type?: T;
+  registry_status?: T;
+  url?: T;
+  enabled?: T;
+  poll_interval?: T;
+  etag?: T;
+  last_modified?: T;
+  last_polled_at?: T;
+  last_success_at?: T;
+  last_error?: T;
+  consecutive_errors?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "source-items_select".
+ */
+export interface SourceItemsSelect<T extends boolean = true> {
+  source?: T;
+  title?: T;
+  url?: T;
+  canonical_url?: T;
+  summary?: T;
+  published_at?: T;
+  fetched_at?: T;
+  hash?: T;
+  title_hash?: T;
+  simhash?: T;
+  cluster_status?: T;
+  event?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events_select".
+ */
+export interface EventsSelect<T extends boolean = true> {
+  title?: T;
+  first_seen_at?: T;
+  last_seen_at?: T;
+  source_count?: T;
+  independent_confirmation?: T;
+  status?: T;
+  draft_article?: T;
   updatedAt?: T;
   createdAt?: T;
 }
