@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start --port 3000",
     "lint": "next lint",
-    "migrate": "payload migrate",
+    "migrate": "tsx src/scripts/migrate.ts",
     "migrate:create": "payload migrate:create",
     "seed": "tsx src/seed/index.ts",
     "worker": "tsx src/jobs/worker.ts",

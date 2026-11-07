@@ -24,9 +24,12 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
-COPY --from=builder /app/src/migrations ./src/migrations
-COPY --from=builder /app/src/sql ./src/sql
-COPY --from=builder /app/src/seed ./src/seed
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+# `payload migrate`/`npm run seed` run via the Payload CLI, which loads
+# payload.config.ts (and everything it imports) directly from source at
+# runtime using tsconfig.json — not from the compiled .next output — so the
+# full src tree has to ship in the runner image, not just the migrations dir.
+COPY --from=builder /app/src ./src
 EXPOSE 3000
 # Run pending migrations, then start the server. Seeding is a separate manual
 # step (`npm run seed`), not part of every container start.

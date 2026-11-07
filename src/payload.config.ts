@@ -24,6 +24,10 @@ export default buildConfig({
   collections: [Users, Rubrics, Tags, Media, Pages, Articles, AnalyticsEvents],
   secret: process.env.PAYLOAD_SECRET || 'dev-secret-change-me',
   sharp,
+  // This sandbox host blocks/stalls outbound egress to telemetry.payloadcms.com,
+  // and Payload's telemetry fetch has no timeout, so every CLI command (migrate,
+  // seed) hangs indefinitely unless telemetry is disabled outright.
+  telemetry: false,
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },
