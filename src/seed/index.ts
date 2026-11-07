@@ -4,6 +4,11 @@ import { getPayloadClient } from '@/lib/payload'
  * Demo content only — three rubrics and three clearly-labeled "Демо-матеріал"
  * articles with fabricated-and-labeled test users and example.com sources.
  * None of this represents a real event, person, or publisher.
+ *
+ * disableTransaction: true everywhere — this script issues many sequential
+ * Local API calls on one connection and Payload 3.37's pg transaction handling
+ * can leave a connection idle-in-transaction across calls, deadlocking the
+ * next statement. Each call here is already a single all-or-nothing write.
  */
 async function main() {
   const payload = await getPayloadClient()
@@ -11,23 +16,32 @@ async function main() {
   const editor = await payload.create({
     collection: 'users',
     data: { email: 'editor@newsroom.test', password: 'password123', name: 'Тест Редактор (demo user)', role: 'editor' },
+    disableTransaction: true,
   })
   const author = await payload.create({
     collection: 'users',
     data: { email: 'author@newsroom.test', password: 'password123', name: 'Тест Автор (demo user)', role: 'author' },
+    disableTransaction: true,
   })
   await payload.create({
     collection: 'users',
     data: { email: 'admin@newsroom.test', password: 'password123', name: 'Тест Адмін (demo user)', role: 'admin' },
+    disableTransaction: true,
   })
 
   const rubricTitles = ['Суспільство', 'Економіка', 'Технології']
   const rubrics = []
   for (const title of rubricTitles) {
-    rubrics.push(await payload.create({ collection: 'rubrics', data: { title, description: `Демо-рубрика: ${title}` } }))
+    rubrics.push(
+      await payload.create({
+        collection: 'rubrics',
+        data: { title, description: `Демо-рубрика: ${title}` },
+        disableTransaction: true,
+      }),
+    )
   }
 
-  const tag = await payload.create({ collection: 'tags', data: { title: 'демо' } })
+  const tag = await payload.create({ collection: 'tags', data: { title: 'демо' }, disableTransaction: true })
 
   const demoBodyRichText = (text: string) => ({
     root: {
@@ -80,6 +94,7 @@ async function main() {
         status: 'in_review',
         author: author.id,
       },
+      disableTransaction: true,
     })
   }
 
@@ -93,6 +108,7 @@ async function main() {
       id: first.id,
       data: { status: 'published', editor: editor.id },
       user: editor,
+      disableTransaction: true,
     })
   }
   if (second) {
@@ -101,6 +117,7 @@ async function main() {
       id: second.id,
       data: { status: 'published', editor: editor.id },
       user: editor,
+      disableTransaction: true,
     })
   }
 
@@ -110,6 +127,7 @@ async function main() {
       title: 'Редакційна політика',
       body: demoBodyRichText('[Чернетка-шаблон] Редакційна політика ресурсу буде заповнена пізніше. Контактні дані: [TBD].'),
     },
+    disableTransaction: true,
   })
   await payload.create({
     collection: 'pages',
@@ -117,6 +135,7 @@ async function main() {
       title: 'Розкриття використання ШІ',
       body: demoBodyRichText('[Чернетка-шаблон] Опис підходу до використання ШІ. Деталі: [TBD].'),
     },
+    disableTransaction: true,
   })
   await payload.create({
     collection: 'pages',
@@ -124,6 +143,7 @@ async function main() {
       title: 'Контакти',
       body: demoBodyRichText('[Чернетка-шаблон] Контактна інформація буде додана після вибору бренду. Email: [TBD].'),
     },
+    disableTransaction: true,
   })
 
   console.log('Seed complete: 3 rubrics, 1 tag, 3 users, 3 demo articles (2 published, 1 in_review), 3 page templates.')

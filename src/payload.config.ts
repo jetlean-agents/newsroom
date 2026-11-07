@@ -31,8 +31,9 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URL,
     },
-    // Sandbox project with no migration pipeline yet: push the schema straight
-    // from the collection configs instead of hand-authoring SQL migrations.
-    push: true,
+    // push is explicitly off: it diffs/rewrites tables on every init, which fights
+    // the hand-written search_vector column/trigger from src/sql/001_search.sql.
+    // Schema changes go through `payload migrate` (see src/migrations) instead.
+    push: false,
   }),
 })

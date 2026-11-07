@@ -25,6 +25,9 @@ function assertValidTransition(req: any, prevStatus: string | undefined, nextSta
 
 export const Articles: CollectionConfig = {
   slug: 'articles',
+  // Payload's own auto createdAt/updatedAt would collide with our content-meaning
+  // `updated_at` (only bumped on a substantive edit, not on every save).
+  timestamps: false,
   admin: {
     useAsTitle: 'title',
     defaultColumns: ['title', 'status', 'rubric', 'published_at', 'updated_at'],
@@ -130,11 +133,21 @@ export const Articles: CollectionConfig = {
 
         for (const tagId of added) {
           const tag = await req.payload.findByID({ collection: 'tags', id: tagId })
-          await req.payload.update({ collection: 'tags', id: tagId, data: { articleCount: (tag.articleCount || 0) + 1 } })
+          await req.payload.update({
+            collection: 'tags',
+            id: tagId,
+            data: { articleCount: (tag.articleCount || 0) + 1 },
+            disableTransaction: true,
+          })
         }
         for (const tagId of removed) {
           const tag = await req.payload.findByID({ collection: 'tags', id: tagId })
-          await req.payload.update({ collection: 'tags', id: tagId, data: { articleCount: Math.max(0, (tag.articleCount || 0) - 1) } })
+          await req.payload.update({
+            collection: 'tags',
+            id: tagId,
+            data: { articleCount: Math.max(0, (tag.articleCount || 0) - 1) },
+            disableTransaction: true,
+          })
         }
       },
     ],

@@ -8,9 +8,9 @@
     "build": "next build",
     "start": "next start --port 3000",
     "lint": "next lint",
-    "db:push": "tsx src/scripts/db-push.ts",
+    "migrate": "payload migrate",
+    "migrate:create": "payload migrate:create",
     "seed": "tsx src/seed/index.ts",
-    "setup-search": "tsx src/scripts/setup-search.ts",
     "worker": "tsx src/jobs/worker.ts",
     "test:unit": "vitest run",
     "test:e2e": "playwright test"

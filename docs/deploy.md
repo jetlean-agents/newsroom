@@ -13,8 +13,8 @@ Then, with `DATABASE_URL=postgres://dev:dev@100.94.103.26:5432/newsroom`:
 
 ```bash
 npm install
-npm run setup-search   # creates the unaccent extension + search_vector column/trigger
-npm run seed           # 3 rubrics + 3 demo articles + 3 page templates + test users
+npm run migrate         # creates tables + the unaccent extension/search_vector trigger
+npm run seed             # 3 rubrics + 3 demo articles + 3 page templates + test users
 npm run dev            # or: npm run build && npm start
 npm run worker         # pg-boss worker (recompute-popular job), separate process
 ```
