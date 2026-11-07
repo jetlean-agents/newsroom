@@ -9,7 +9,7 @@ export default function ScrollTracker({
   nextArticleSlug,
 }: {
   articleId: string
-  nextArticleSlug?: string
+  nextArticleSlug?: string | null
 }) {
   const fired = useRef(new Set<number>())
 

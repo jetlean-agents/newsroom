@@ -121,7 +121,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
       {article.cover && typeof article.cover === 'object' ? (
         <figure>
-          <img src={article.cover.url} alt={article.cover.alt} />
+          <img src={article.cover.url ?? ''} alt={article.cover.alt ?? ''} />
           <figcaption className="meta">
             Фото: {article.cover.credit || article.cover.author || '—'}
             {article.cover.ai_generated ? ' · AI-ілюстрація' : ''}
