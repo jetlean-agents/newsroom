@@ -1,0 +1,42 @@
+name: ag-fact-168
+
+services:
+  app:
+    build: .
+    mem_limit: 768m
+    cpus: 1.0
+    environment:
+      DATABASE_URL: postgres://newsroom:newsroom@db:5432/newsroom
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET:-dev-secret-change-me}
+      SITE_URL: ${SITE_URL:-http://localhost:6020}
+      SITE_NAME: ${SITE_NAME:-Newsroom (sandbox)}
+      NOINDEX: "true"
+      ANALYTICS_ENABLED: "true"
+      TAG_NOINDEX_THRESHOLD: "3"
+    ports:
+      - "100.94.103.26:6020:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      POSTGRES_USER: newsroom
+      POSTGRES_PASSWORD: newsroom
+      POSTGRES_DB: newsroom
+    volumes:
+      - newsroom_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newsroom"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Only this project's own Postgres, used for prod-like/stage-style docker compose.
+    # Day-to-day dev iteration on this Contabo host uses the shared platform-postgres-1
+    # instead (see docs/deploy.md) — this container is NOT started for routine dev work.
+
+volumes:
+  newsroom_pg_data:
