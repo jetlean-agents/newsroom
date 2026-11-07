@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      # Payload boots during `next build`'s page-data collection step but the
+      # frontend/DB-backed routes are force-dynamic, so no real schema access
+      # happens at build/typecheck/lint/unit-test time — see Dockerfile.
+      DATABASE_URL: postgres://placeholder:placeholder@localhost:5432/placeholder
+      PAYLOAD_SECRET: ci-only-secret
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm run test:unit
+
+      - run: npm run build
