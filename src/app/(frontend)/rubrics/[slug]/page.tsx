@@ -23,7 +23,7 @@ export default async function RubricPage({ params }: { params: Promise<{ slug: s
     <div>
       <h1>{doc.title}</h1>
       {doc.description ? <p>{doc.description}</p> : null}
-      {articles.docs.map((a: any) => (
+      {articles.docs.map((a) => (
         <article key={a.id} className="feed-item">
           <h2><Link href={`/articles/${a.slug}`}>{a.title}</Link></h2>
           <p className="meta">{a.published_at ? new Date(a.published_at).toLocaleString('uk-UA') : ''}</p>

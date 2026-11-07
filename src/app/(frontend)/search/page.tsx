@@ -1,5 +1,14 @@
 import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
+import type { Pool } from 'pg'
+
+interface SearchRow {
+  id: number
+  title: string
+  slug: string
+  lead: string
+  published_at: string | null
+}
 
 export default async function SearchPage({
   searchParams,
@@ -9,10 +18,10 @@ export default async function SearchPage({
   const { q } = await searchParams
   const payload = await getPayloadClient()
 
-  let results: any[] = []
+  let results: SearchRow[] = []
   if (q && q.trim()) {
-    const pool = (payload.db as any).pool
-    const { rows } = await pool.query(
+    const pool = (payload.db as unknown as { pool: Pool }).pool
+    const { rows } = await pool.query<SearchRow>(
       `select id, title, slug, lead, published_at
        from articles
        where status = 'published'

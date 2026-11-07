@@ -13,11 +13,11 @@ export async function GET() {
   })
 
   const items = articles.docs.map(
-    (a: any) => `<item>
+    (a) => `<item>
   <title>${escapeXml(a.title)}</title>
   <link>${SITE_URL}/articles/${a.slug}</link>
   <guid>${SITE_URL}/articles/${a.slug}</guid>
-  <pubDate>${new Date(a.published_at).toUTCString()}</pubDate>
+  <pubDate>${new Date(a.published_at ?? Date.now()).toUTCString()}</pubDate>
   <description>${escapeXml(a.lead)}</description>
 </item>`,
   )

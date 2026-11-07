@@ -12,9 +12,9 @@ export async function GET() {
 
   const urls = [
     `<url><loc>${SITE_URL}/</loc></url>`,
-    ...rubrics.docs.map((r: any) => `<url><loc>${SITE_URL}/rubrics/${r.slug}</loc></url>`),
+    ...rubrics.docs.map((r) => `<url><loc>${SITE_URL}/rubrics/${r.slug}</loc></url>`),
     ...articles.docs.map(
-      (a: any) => `<url><loc>${SITE_URL}/articles/${a.slug}</loc><lastmod>${a.updated_at || a.published_at}</lastmod></url>`,
+      (a) => `<url><loc>${SITE_URL}/articles/${a.slug}</loc><lastmod>${a.updated_at || a.published_at}</lastmod></url>`,
     ),
   ]
 

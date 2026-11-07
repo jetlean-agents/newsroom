@@ -5,6 +5,7 @@ import { getPayloadClient } from '@/lib/payload'
 import { SITE_URL, SITE_NAME, NOINDEX } from '@/lib/env'
 import { RichText } from '@payloadcms/richtext-lexical/react'
 import ScrollTracker from './ScrollTracker'
+import type { Article, Tag } from '@/payload-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,7 +47,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
   const payload = await getPayloadClient()
   const rubricId = typeof article.rubric === 'object' ? article.rubric.id : article.rubric
-  const tagIds = (article.tags || []).map((t: any) => (typeof t === 'object' ? t.id : t))
+  const tagIds = (article.tags || []).map((t: number | Tag) => (typeof t === 'object' ? t.id : t))
 
   const [related, next] = await Promise.all([
     payload.find({
@@ -133,7 +134,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
         <section className="sources">
           <h2>Джерела</h2>
           <ul>
-            {article.sources.map((s: any, i: number) => (
+            {article.sources.map((s: NonNullable<Article['sources']>[number], i: number) => (
               <li key={i}>
                 <a href={s.url} target="_blank" rel="noopener noreferrer nofollow">{s.title}</a>
                 {s.publisher ? ` — ${s.publisher}` : ''}
@@ -147,7 +148,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
         <section className="corrections">
           <h2>Виправлення</h2>
           <ul>
-            {article.corrections.map((c: any, i: number) => (
+            {article.corrections.map((c: NonNullable<Article['corrections']>[number], i: number) => (
               <li key={i}>{c.date ? new Date(c.date).toLocaleDateString('uk-UA') : ''}: {c.note}</li>
             ))}
           </ul>
@@ -156,9 +157,9 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
       {related.docs.length ? (
         <section>
-          <h2>Пов'язані матеріали</h2>
+          <h2>Пов&apos;язані матеріали</h2>
           <ul>
-            {related.docs.map((a: any) => (
+            {related.docs.map((a) => (
               <li key={a.id}><Link href={`/articles/${a.slug}`}>{a.title}</Link></li>
             ))}
           </ul>

@@ -15,7 +15,7 @@ export async function GET() {
   })
 
   const urls = articles.docs.map(
-    (a: any) => `<url>
+    (a) => `<url>
   <loc>${SITE_URL}/articles/${a.slug}</loc>
   <news:news>
     <news:publication>

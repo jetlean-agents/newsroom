@@ -1,13 +1,14 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, PayloadRequest } from 'payload'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { stableSlug } from '../lib/slug'
+import type { Tag } from '../payload-types'
 
 /**
  * Publication state machine: draft -> in_review -> published -> unpublished.
  * Only admin/editor may move a doc INTO "published", and only from "in_review" —
  * authors can take a draft to in_review but not past it.
  */
-function assertValidTransition(req: any, prevStatus: string | undefined, nextStatus: string) {
+function assertValidTransition(req: PayloadRequest, prevStatus: string | undefined, nextStatus: string) {
   if (nextStatus === prevStatus) return
   const role = req.user?.role
   if (nextStatus === 'published') {
@@ -126,8 +127,9 @@ export const Articles: CollectionConfig = {
     afterChange: [
       async ({ req, doc, previousDoc }) => {
         // Keep Tags.articleCount (and thus noindex) in sync.
-        const prevTagIds: string[] = (previousDoc?.tags || []).map((t: any) => (typeof t === 'object' ? t.id : t))
-        const nextTagIds: string[] = (doc.tags || []).map((t: any) => (typeof t === 'object' ? t.id : t))
+        const toTagId = (t: number | Tag) => (typeof t === 'object' ? t.id : t)
+        const prevTagIds: number[] = (previousDoc?.tags || []).map(toTagId)
+        const nextTagIds: number[] = (doc.tags || []).map(toTagId)
         const added = nextTagIds.filter((id) => !prevTagIds.includes(id))
         const removed = prevTagIds.filter((id) => !nextTagIds.includes(id))
 

@@ -27,14 +27,14 @@ export default async function HomePage() {
   return (
     <div>
       <nav className="rubric-nav">
-        {rubrics.docs.map((r: any) => (
+        {rubrics.docs.map((r) => (
           <Link key={r.id} href={`/rubrics/${r.slug}`}>{r.title}</Link>
         ))}
       </nav>
 
       <section>
         <h1>Останні новини</h1>
-        {feed.docs.map((a: any) => (
+        {feed.docs.map((a) => (
           <article key={a.id} className="feed-item">
             <h2>
               <Link href={`/articles/${a.slug}`}>{a.title}</Link>
@@ -42,7 +42,7 @@ export default async function HomePage() {
             </h2>
             <p>{a.lead}</p>
             <p className="meta">
-              {a.rubric?.title} · {a.published_at ? new Date(a.published_at).toLocaleString('uk-UA') : ''}
+              {typeof a.rubric === 'object' ? a.rubric.title : ''} · {a.published_at ? new Date(a.published_at).toLocaleString('uk-UA') : ''}
             </p>
           </article>
         ))}
@@ -51,7 +51,7 @@ export default async function HomePage() {
       <aside>
         <h2>Популярне</h2>
         <ul>
-          {popular.docs.map((a: any) => (
+          {popular.docs.map((a) => (
             <li key={a.id}><Link href={`/articles/${a.slug}`}>{a.title}</Link></li>
           ))}
         </ul>
