@@ -1,13 +1,13 @@
 import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
 
-export const revalidate = 300
+export const dynamic = 'force-dynamic'
 
 export default async function CorrectionsPage() {
   const payload = await getPayloadClient()
   const result = await payload.find({
     collection: 'articles',
-    where: { and: [{ status: { equals: 'published' } }, { corrections: { exists: true } }] },
+    where: { status: { equals: 'published' } },
     sort: '-updated_at',
     limit: 50,
   })

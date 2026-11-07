@@ -1,6 +1,8 @@
 import { getPayloadClient } from '@/lib/payload'
 import { SITE_URL, NOINDEX } from '@/lib/env'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const payload = await getPayloadClient()
   const [articles, rubrics] = await Promise.all([

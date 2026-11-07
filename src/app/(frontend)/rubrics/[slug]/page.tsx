@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getPayloadClient } from '@/lib/payload'
 
-export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
 export default async function RubricPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params

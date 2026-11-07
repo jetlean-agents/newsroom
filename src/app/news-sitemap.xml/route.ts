@@ -1,6 +1,8 @@
 import { getPayloadClient } from '@/lib/payload'
 import { SITE_URL, SITE_NAME, NOINDEX } from '@/lib/env'
 
+export const dynamic = 'force-dynamic'
+
 /** Google News sitemap: only articles published in the last 48h. */
 export async function GET() {
   const payload = await getPayloadClient()

@@ -6,7 +6,7 @@ import { SITE_URL, SITE_NAME, NOINDEX } from '@/lib/env'
 import { RichText } from '@payloadcms/richtext-lexical/react'
 import ScrollTracker from './ScrollTracker'
 
-export const revalidate = 60
+export const dynamic = 'force-dynamic'
 
 async function getArticle(slug: string) {
   const payload = await getPayloadClient()
@@ -93,7 +93,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
   return (
     <article>
-      <ScrollTracker articleId={article.id} nextArticleSlug={nextArticle?.slug} />
+      <ScrollTracker articleId={String(article.id)} nextArticleSlug={nextArticle?.slug} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <nav className="meta">
