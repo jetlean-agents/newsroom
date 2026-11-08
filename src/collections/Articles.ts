@@ -14,7 +14,12 @@ import type { Tag } from '../payload-types'
  * make this transition at all, 400 for a role-valid transition from the wrong
  * prior status.
  */
-function assertValidTransition(req: PayloadRequest, prevStatus: string | undefined, nextStatus: string) {
+function assertValidTransition(
+  req: PayloadRequest,
+  prevStatus: string | undefined,
+  nextStatus: string,
+  originalityBlocked?: boolean | null,
+) {
   if (nextStatus === prevStatus) return
   const role = req.user?.role
   if (nextStatus === 'published') {
@@ -23,6 +28,12 @@ function assertValidTransition(req: PayloadRequest, prevStatus: string | undefin
     }
     if (prevStatus !== 'in_review') {
       throw new APIError('An article can only be published from in_review.', 400)
+    }
+    if (originalityBlocked) {
+      throw new APIError(
+        'Draft overlaps too much with its sources (originality_overlap over ORIGINALITY_MAX_OVERLAP) — rewrite before publishing.',
+        400,
+      )
     }
   }
   if (nextStatus === 'unpublished' && role !== 'admin' && role !== 'editor') {
@@ -37,7 +48,7 @@ export const Articles: CollectionConfig = {
   timestamps: false,
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'status', 'rubric', 'published_at', 'updated_at'],
+    defaultColumns: ['title', 'status', 'rubric', 'originality_overlap', 'published_at', 'updated_at'],
     // `doc.rubric` here is often just an id, not the populated relationship — the stable
     // `/articles/{slug}` legacy path (301 → `/{rubric}/{slug}/`, see src/app/(frontend)/articles/[slug]/route.ts)
     // avoids needing a second lookup just to build the preview link.
@@ -112,8 +123,36 @@ export const Articles: CollectionConfig = {
     },
     { name: 'author', type: 'relationship', relationTo: 'users', required: true },
     { name: 'editor', type: 'relationship', relationTo: 'users' },
+    {
+      name: 'drafted_at',
+      type: 'date',
+      admin: { readOnly: true, description: 'When draftFromEvent() created this article. Used to enforce DRAFTS_PER_DAY (Articles has no createdAt — timestamps: false above).' },
+    },
     { name: 'ai_assisted', type: 'checkbox', defaultValue: false },
     { name: 'ai_disclosure', type: 'text', admin: { condition: (data) => !!data.ai_assisted, description: 'Required when ai_assisted is checked.' } },
+    {
+      name: 'originality_overlap',
+      type: 'number',
+      admin: {
+        readOnly: true,
+        description: 'Shingle overlap (0-1) of the draft against its most-copied-from source. Set by draftFromEvent(); see src/lib/ai/originality.ts.',
+      },
+    },
+    {
+      name: 'originality_blocked',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: { readOnly: true, description: 'True when originality_overlap > ORIGINALITY_MAX_OVERLAP — blocks the draft -> published transition until rewritten.' },
+    },
+    {
+      name: 'fact_flags',
+      type: 'array',
+      admin: { readOnly: true, description: 'Numbers/dates/names in the draft not found in any source — "перевірити" pointers for the reviewing editor, non-blocking.' },
+      fields: [
+        { name: 'value', type: 'text', required: true },
+        { name: 'kind', type: 'select', required: true, options: ['number', 'date', 'name'] },
+      ],
+    },
     {
       name: 'corrections',
       type: 'array',
@@ -135,7 +174,7 @@ export const Articles: CollectionConfig = {
         data.slug = stableSlug(data.title, data.slug)
 
         const prevStatus = originalDoc?.status
-        assertValidTransition(req, prevStatus, data.status)
+        assertValidTransition(req, prevStatus, data.status, data.originality_blocked ?? originalDoc?.originality_blocked)
 
         if (data.status === 'published' && prevStatus !== 'published') {
           data.published_at = data.published_at || new Date().toISOString()

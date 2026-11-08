@@ -34,6 +34,7 @@ export const RESERVED_TOP_LEVEL_SEGMENTS: readonly string[] = [
   'tag',
   'search',
   'corrections',
+  'review',
   'sitemap.xml',
   'news-sitemap.xml',
   'feed.xml',

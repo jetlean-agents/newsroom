@@ -1,4 +1,4 @@
-# Ingestion, dedup, editorial pipeline (FACT-169)
+# Ingestion, dedup, editorial pipeline (FACT-169, extended by FACT-236)
 
 ## Overview
 
@@ -8,8 +8,11 @@ config/sources.yaml (FACT-167 registry)
   -> ingest-dispatch-polls (every 1m, checks each source's own poll_interval)
     -> ingest-poll-source (fetch + parse + store) -> SourceItems
       -> ingest-cluster-events (every 5m, simhash/title-hash dedup) -> Events
-        -> ingest-draft-from-event (every 10m, confirmed events only) -> draft Article
-          -> author rewrites in own words -> in_review -> editor publishes
+        -> ingest-draft-from-event (every 10m, confirmed events only,
+           priority-ranked, DRAFTS_PER_DAY-capped) -> AI_PROVIDER draft
+             -> draft Article (originality_overlap/fact_flags set)
+               -> /review queue -> author/editor rewrite+verify -> in_review
+                 -> editor publishes (blocked if originality_blocked)
 ```
 
 All of this is **off by default** (`INGEST_ENABLED=false`). Nothing it produces
@@ -96,28 +99,86 @@ bodies — per each source's `reuse_terms`.
   `>= EVENT_CONFIRMATION_MIN_SOURCES` (default 2) **distinct** sources — the
   signal the registry/epic calls "є незалежне підтвердження".
 
-## Editorial pipeline (`Events` -> draft `Article`)
+## Editorial pipeline (`Events` -> draft `Article`) — FACT-169, extended by FACT-236
 
-`draftFromEvent()` turns every `new` + `independent_confirmation` event into
-an Article in `draft` status:
+`draftFromEvent()` turns `new` + `independent_confirmation` events into Articles
+in `draft` status, highest-priority events first (most sources, then freshest —
+`src/lib/review/priority.ts` `prioritizeEvents`), capped at `DRAFTS_PER_DAY` new
+drafts per UTC calendar day across the whole run (any provider) so the review
+queue can never outgrow what an editor can actually clear. Only facts allowed
+in `SourceItems` (title/summary/url/publisher/dates) ever reach the draft —
+never a scraped full article body.
+
+**Draft provider** (`src/lib/ai/draftProvider.ts`, `AI_PROVIDER` env):
+
+- `none` (sandbox default) — no AI call at all. The draft is a plain
+  facts-with-citations scaffold labeled "факти для самостійного
+  переписування (не копіювати)" — never prose the author could accidentally
+  ship unedited. `ai_assisted` stays `false`, originality/fact-check checks
+  don't run (there's no AI prose to check).
+- `mock` — deterministic stand-in for tests/e2e. Builds real UA paragraphs +
+  lead + "Що відомо"/"Що невідомо" purely by templating the supplied facts —
+  never invents a detail. `ai_assisted: true`.
+- `anthropic` — the real provider (Roman's 08.11 decision: Claude, $30/mo
+  budget). Calls the Messages API with a system prompt that forbids inventing
+  quotes/people/numbers/dates and requires every claim to cite a supplied
+  fact; expects strict JSON back. Only selected via `AI_PROVIDER=anthropic`,
+  and only once `AI_API_KEY` is set from Autoreg's secrets store (FACT-262) —
+  until then this throws a clear per-event error (skipped, not fatal to the
+  job) rather than silently calling out with no key.
+
+**Anti-copypaste** (`src/lib/ai/originality.ts`): for AI-generated drafts
+(`mock`/`anthropic`), `maxOverlap()` computes the word-shingle (5-word)
+overlap between the full draft text and each source's title+summary — the
+overlap against the single most-copied-from source, not an averaged-down
+figure. Stored as `Article.originality_overlap` (visible in the admin list).
+Above `ORIGINALITY_MAX_OVERLAP` (default 0.5), `originality_blocked: true` is
+set and `Articles`' publish-transition guard (`src/collections/Articles.ts`)
+rejects `in_review -> published` with a 400 until the draft is rewritten —
+the one AI-pipeline check that actually blocks publication.
+
+**Fact-check assist** (`src/lib/ai/factCheck.ts`): for AI-generated drafts,
+`factCheckFlags()` flags numbers, dates and capitalized-name sequences in the
+draft that don't appear in any source text — a "перевірити" pointer for the
+reviewing editor, stored as `Article.fact_flags[]`. Heuristic, non-blocking:
+it never stops a publish by itself.
+
 - `sources[]` is populated from every clustered item (title/url/publisher/accessed_at).
-- `body` is a bullet list of facts + citations — explicitly labeled
-  "факти для самостійного переписування (не копіювати)" — never prose the
-  author could accidentally ship unedited.
-- `ai_assisted` stays `false`; `AI_PROVIDER=none` by default, so no AI text
-  is generated. Turning this on for real is a separate, Roman-approved change
-  (see epic FACT-164) — the interface is intentionally just a stub today.
+- `ai_assisted`/`ai_disclosure` are set together: `ai_disclosure` carries the
+  reader-facing editorial-policy line whenever a draft came from `mock`/
+  `anthropic`. `author` stays the system ingest account until a real editor
+  claims the draft and rewrites/verifies it — that hand-off, not this job, is
+  what AC item 7's "author = real editor" means in practice.
 - The event flips to `drafted` and links to the created article.
 
 From there the pipeline is the stage-1 Articles state machine: an author
-claims the draft, writes their own text, moves it to `in_review`; only
-editor/admin can move `in_review` -> `published`. Publishing is never
-automatic.
+claims the draft, writes/verifies the text, moves it to `in_review`; only
+editor/admin can move `in_review` -> `published` (and only when not
+`originality_blocked`). Publishing is never automatic.
 
 **Duplicate warning on publish**: if an article's `event` already has a
 different `published` article, publishing sets `duplicate_warning` (visible,
 non-blocking — it's a column in the admin list, not a hard stop) rather than
 silently allowing two public articles for the same event.
+
+## Review queue (`/review`) — FACT-236 scope item 5
+
+A dedicated screen for editor/admin (redirects anyone else to `/admin` to log
+in) at `/review` (`src/app/(frontend)/review/`): every `in_review` article,
+ranked by `prioritizeReviewQueue()` (most sources, then freshest event, then
+rubric order — same tie-break order as `prioritizeEvents`), shown one at a
+time with its sources side by side, originality overlap %, and fact-check
+flags all on one screen — no tab-switching between the article and its
+sources the way the generic Payload admin edit view requires.
+
+Actions, each a single `PATCH /api/articles/:id` with the normal
+Articles state-machine rules (so an author-role session still can't publish
+from here): **Опублікувати** (1, disabled when `originality_blocked`) ->
+`published`; **Повернути** (2) -> back to `draft` for the author to revise;
+**Відхилити** (3) -> `unpublished` (never published, not a retraction of a
+live article — reuses the existing status rather than adding a new one).
+`←`/`→` move between queue items without acting. Target: under 3 minutes per
+material (issue AC) — one screen, one keypress per decision, no page reloads.
 
 ## Images
 
@@ -144,7 +205,8 @@ Payload doesn't need bespoke views for simple status queues — the same
 deep-link-filter pattern FACT-168 used for the articles review queue:
 
 - **Events queue**: `/admin/collections/events?where[status][equals]=new`
-- **Review queue** (unchanged from stage 1): `/admin/collections/articles?where[status][equals]=in_review`
+- **Fast review queue** (FACT-236, see above): `/review` — one draft at a time, sources/overlap/flags alongside, hotkeys.
+- **Review queue, generic list view** (stage 1, still works): `/admin/collections/articles?where[status][equals]=in_review`
 - **Source status**: `/admin/collections/sources` (sort by `consecutive_errors` to find a dead-lettered source)
 
 ## Running the worker locally

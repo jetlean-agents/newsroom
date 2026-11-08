@@ -24,6 +24,14 @@ export const INGEST_INCLUDE_CANDIDATES = process.env.INGEST_INCLUDE_CANDIDATES =
 export const EVENT_CONFIRMATION_MIN_SOURCES = Number(process.env.EVENT_CONFIRMATION_MIN_SOURCES || 2)
 /** AI draft-assist provider; "none" means the draft stays a plain source digest. */
 export const AI_PROVIDER = process.env.AI_PROVIDER || 'none'
+/** Model name passed to the AI provider (provider-specific; unused by `none`/`mock`). */
+export const AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-5-5'
+/** API key for the AI provider. Only read when AI_PROVIDER is a real provider (e.g. `anthropic`) — never logged. */
+export const AI_API_KEY = process.env.AI_API_KEY || ''
+/** Draft n-gram/shingle overlap with its source texts above this ratio (0-1) blocks publication (originality_blocked). */
+export const ORIGINALITY_MAX_OVERLAP = Number(process.env.ORIGINALITY_MAX_OVERLAP || 0.5)
+/** Hard cap on how many new AI drafts draftFromEvent() creates per UTC calendar day, so the review queue can't fill with thin content faster than editors can clear it. */
+export const DRAFTS_PER_DAY = Number(process.env.DRAFTS_PER_DAY || 20)
 
 export function robotsMeta(): string {
   return NOINDEX ? 'noindex, nofollow' : 'index, follow'

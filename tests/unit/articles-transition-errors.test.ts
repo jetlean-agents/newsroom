@@ -6,10 +6,15 @@ import { Articles } from '@/collections/Articles'
 // (src/collections/Articles.ts assertValidTransition) before any other side effect.
 const runTransitionHook = (Articles.hooks as any).beforeChange[0]
 
-function attemptStatusChange(role: string, nextStatus: string, prevStatus?: string) {
+function attemptStatusChange(
+  role: string,
+  nextStatus: string,
+  prevStatus?: string,
+  extra?: Record<string, unknown>,
+) {
   return runTransitionHook({
     req: { user: { role } },
-    data: { title: 'Test article', status: nextStatus },
+    data: { title: 'Test article', status: nextStatus, ...extra },
     originalDoc: prevStatus ? { status: prevStatus } : undefined,
   })
 }
@@ -54,5 +59,22 @@ describe('Articles publish-transition guard (FACT-238)', () => {
 
   it('still allows an author to move a draft to in_review', () => {
     expect(() => attemptStatusChange('author', 'in_review', 'draft')).not.toThrow()
+  })
+
+  it('rejects publishing an originality_blocked draft with a 400 APIError (FACT-236)', () => {
+    let caught: any
+    try {
+      attemptStatusChange('editor', 'published', 'in_review', { originality_blocked: true })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(APIError)
+    expect(caught.status).toBe(400)
+  })
+
+  it('still allows publishing a draft whose overlap check passed (originality_blocked false)', () => {
+    expect(() =>
+      attemptStatusChange('editor', 'published', 'in_review', { originality_blocked: false }),
+    ).not.toThrow()
   })
 })
