@@ -16,5 +16,12 @@
 | `AI_API_KEY` | no | (unset) | Only a name reserved for the future AI provider; no value is ever committed. |
 | `UNSPLASH_ACCESS_KEY` | no | (unset) | Enables the Unsplash image-search provider (`src/lib/images/providers.ts`). Unset = provider disabled, no error. |
 | `PEXELS_API_KEY` | no | (unset) | Same, for Pexels. Wikimedia Commons needs no key and is always enabled. |
+| `S3_ENDPOINT` | stage/prod | `https://minio.internal:9000` | S3-compatible endpoint for the `media` collection. Unset `S3_BUCKET` = Payload falls back to local-disk upload (dev-only). |
+| `S3_REGION` | no | `auto` | Passed through to the S3 client; MinIO/R2 both accept `auto`. |
+| `S3_BUCKET` | stage/prod | `newsroom-media` | Bucket for uploaded media. Presence of this var is what turns the S3 plugin on (`src/payload.config.ts`). |
+| `S3_ACCESS_KEY_ID` | stage/prod | (random) | Never commit a real value. |
+| `S3_SECRET_ACCESS_KEY` | stage/prod | (random) | Never commit a real value. |
+| `S3_FORCE_PATH_STYLE` | no | `true` | Required for MinIO; AWS S3 itself also accepts it. |
+| `S3_PUBLIC_URL` | stage/prod | `https://news-media-sandbox.bigear.uk` | Base URL used to build public links to uploaded files (`generateFileURL` in `src/payload.config.ts`). |
 
 No secret values are committed anywhere in this repo — only variable names, in `.env.example`.

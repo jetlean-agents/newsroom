@@ -2,6 +2,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { postgresAdapter } from '@payloadcms/db-postgres'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
+import { s3Storage } from '@payloadcms/storage-s3'
 import { buildConfig } from 'payload'
 import sharp from 'sharp'
 
@@ -27,6 +28,32 @@ export default buildConfig({
   collections: [Users, Rubrics, Tags, Media, Pages, Articles, AnalyticsEvents, Sources, SourceItems, Events],
   secret: process.env.PAYLOAD_SECRET || 'dev-secret-change-me',
   sharp,
+  // Media files live in S3-compatible storage (MinIO on stage, R2 on prod), never on the
+  // container's local disk — see docs/env.md S3_* vars. Disabled only when S3_BUCKET is unset
+  // (e.g. a throwaway local run), falling back to Payload's local-disk upload handler.
+  plugins: process.env.S3_BUCKET
+    ? [
+        s3Storage({
+          collections: {
+            media: {
+              disableLocalStorage: true,
+              generateFileURL: ({ filename }) => `${process.env.S3_PUBLIC_URL}/${filename}`,
+            },
+          },
+          bucket: process.env.S3_BUCKET,
+          acl: 'public-read',
+          config: {
+            endpoint: process.env.S3_ENDPOINT,
+            region: process.env.S3_REGION || 'auto',
+            credentials: {
+              accessKeyId: process.env.S3_ACCESS_KEY_ID || '',
+              secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
+            },
+            forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+          },
+        }),
+      ]
+    : [],
   // This sandbox host blocks/stalls outbound egress to telemetry.payloadcms.com,
   // and Payload's telemetry fetch has no timeout, so every CLI command (migrate,
   // seed) hangs indefinitely unless telemetry is disabled outright.

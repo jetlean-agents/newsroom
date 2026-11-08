@@ -1,20 +1,61 @@
-name: ag-fact-168
+name: ag-fact-170
 
+# Dokploy sandbox app (news.bigear.uk): app + worker + this app's OWN Postgres.
+# Fully isolated from Contabo/dev — no shared Postgres, no Tailscale addresses
+# in env (see repo CLAUDE.md "Окружения: dev / stage / prod"). Media (S3) lives
+# in the separate `docker-compose.minio.yml` compose app — see docs/deploy.md
+# for why it's split out instead of a second domain in this same compose app.
+#
+# No host ports are published: Dokploy/Traefik routes `news.bigear.uk` to the
+# `app` service's internal port 3000 via the Dokploy domain config, not via a
+# compose `ports:` mapping (there is no stable host IP to bind to on the
+# Dokploy host). Local day-to-day dev still uses `npm run dev` against the
+# shared Contabo Postgres (`docs/deploy.md` "Dev"), not this compose file.
 services:
   app:
     build: .
     mem_limit: 768m
     cpus: 1.0
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://newsroom:newsroom@db:5432/newsroom
-      PAYLOAD_SECRET: ${PAYLOAD_SECRET:-dev-secret-change-me}
-      SITE_URL: ${SITE_URL:-http://localhost:6020}
-      SITE_NAME: ${SITE_NAME:-Newsroom (sandbox)}
+      DATABASE_URL: postgres://newsroom:${POSTGRES_PASSWORD}@db:5432/newsroom
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      SITE_URL: ${SITE_URL}
+      SITE_NAME: ${SITE_NAME}
       NOINDEX: "true"
-      ANALYTICS_ENABLED: "true"
-      TAG_NOINDEX_THRESHOLD: "3"
-    ports:
-      - "100.94.103.26:6020:3000"
+      ANALYTICS_ENABLED: ${ANALYTICS_ENABLED:-false}
+      TAG_NOINDEX_THRESHOLD: ${TAG_NOINDEX_THRESHOLD:-30}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: auto
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["npm", "run", "worker"]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://newsroom:${POSTGRES_PASSWORD}@db:5432/newsroom
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: auto
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL}
+      INGEST_ENABLED: "true"
+      INGEST_INCLUDE_CANDIDATES: "false"
+      EVENT_CONFIRMATION_MIN_SOURCES: ${EVENT_CONFIRMATION_MIN_SOURCES:-2}
+      AI_PROVIDER: none
     depends_on:
       db:
         condition: service_healthy
@@ -23,9 +64,10 @@ services:
     image: postgres:17
     mem_limit: 512m
     cpus: 0.5
+    restart: unless-stopped
     environment:
       POSTGRES_USER: newsroom
-      POSTGRES_PASSWORD: newsroom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: newsroom
     volumes:
       - newsroom_pg_data:/var/lib/postgresql/data
@@ -34,9 +76,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    # Only this project's own Postgres, used for prod-like/stage-style docker compose.
-    # Day-to-day dev iteration on this Contabo host uses the shared platform-postgres-1
-    # instead (see docs/deploy.md) — this container is NOT started for routine dev work.
+    # Internal-only — no published port, no domain. This project's own
+    # Postgres (never the shared Contabo `platform-postgres-1`).
 
 volumes:
   newsroom_pg_data:
