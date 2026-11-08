@@ -39,8 +39,15 @@ test.describe('corrections', () => {
 })
 
 test.describe('404 / 410', () => {
-  test('unknown article slug returns 404 with noindex', async ({ request }) => {
+  test('unknown article slug returns 404 with noindex (legacy /articles/ redirect route)', async ({ request }) => {
     const res = await request.get('/articles/this-slug-does-not-exist-xyz123', {
+      failOnStatusCode: false,
+    })
+    expect(res.status()).toBe(404)
+  })
+
+  test('unknown rubric/slug URL returns 404', async ({ request }) => {
+    const res = await request.get('/podii/this-slug-does-not-exist-xyz123', {
       failOnStatusCode: false,
     })
     expect(res.status()).toBe(404)
@@ -53,35 +60,70 @@ test.describe('404 / 410', () => {
   // read-verified in code but not driven end-to-end here.
 })
 
+test.describe('legacy URL redirects (FACT-194)', () => {
+  test('/articles/{slug} 301s to /{rubric}/{slug}/', async ({ request }) => {
+    await request.get('/') // warm up, not required
+    const home = await request.get('/')
+    const html = await home.text()
+    const match = html.match(/href="(\/[a-z-]+\/[a-z0-9-]+\/)"/)
+    test.skip(!match, 'No article link found on the home page to derive a slug from')
+    if (!match) return
+    const [, newPath] = match
+    const slug = newPath.split('/').filter(Boolean).pop()
+    const res = await request.get(`/articles/${slug}`, { maxRedirects: 0, failOnStatusCode: false })
+    expect([301, 308]).toContain(res.status())
+    expect(res.headers()['location']).toContain(newPath)
+  })
+
+  test('/rubrics/{slug} 301s to /{slug}/', async ({ request }) => {
+    const res = await request.get('/rubrics/podii', { maxRedirects: 0, failOnStatusCode: false })
+    expect(res.status()).toBe(301)
+    expect(res.headers()['location']).toContain('/podii/')
+  })
+})
+
 test.describe('SEO tags — article page', () => {
-  test('has canonical, OpenGraph, noindex meta and NewsArticle JSON-LD', async ({ page }) => {
+  test('has canonical under /{rubric}/{slug}/, OpenGraph, noindex meta, BreadcrumbList and Article/NewsArticle JSON-LD', async ({ page }) => {
     await page.goto('/')
-    await page.locator('.feed-item h2 a').first().click()
+    await page.locator('.feed-item h2 a, .feed-item h3 a').first().click()
 
     const canonical = page.locator('link[rel="canonical"]')
-    await expect(canonical).toHaveAttribute('href', /^https:\/\/news\.bigear\.uk\/articles\//)
+    await expect(canonical).toHaveAttribute('href', /\/[a-z-]+\/[a-z0-9-]+\/$/)
 
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
     await expect(page.locator('meta[property="og:title"]')).toHaveCount(1)
     await expect(page.locator('meta[property="og:type"]')).toHaveAttribute('content', 'article')
 
-    const ldJson = await page.locator('script[type="application/ld+json"]').first().textContent()
-    expect(ldJson).toBeTruthy()
-    const parsed = JSON.parse(ldJson ?? '{}')
-    expect(parsed['@type']).toBe('NewsArticle')
-    expect(parsed.headline).toBeTruthy()
-    expect(parsed.datePublished).toBeTruthy()
-    // Known gap (FACT-194, tracked separately, not a new bug here):
-    // no `publisher`/`image`/`mainEntityOfPage`, and breadcrumbs render as a
-    // plain <nav>, not a BreadcrumbList JSON-LD block.
+    const ldBlocks = await page.locator('script[type="application/ld+json"]').allTextContents()
+    expect(ldBlocks.length).toBeGreaterThanOrEqual(2) // BreadcrumbList + Article/NewsArticle
+    const parsedBlocks = ldBlocks.map((b) => JSON.parse(b))
+
+    const breadcrumb = parsedBlocks.find((b) => b['@type'] === 'BreadcrumbList')
+    expect(breadcrumb).toBeTruthy()
+    expect(breadcrumb.itemListElement.length).toBeGreaterThanOrEqual(3)
+
+    const article = parsedBlocks.find((b) => b['@type'] === 'NewsArticle' || b['@type'] === 'Article')
+    expect(article).toBeTruthy()
+    expect(article.headline).toBeTruthy()
+    expect(article.datePublished).toBeTruthy()
+    expect(article.inLanguage).toBe('uk')
+    expect(article.mainEntityOfPage).toBeTruthy()
+    expect(article.publisher?.['@type']).toBe('Organization')
+    expect(article.publisher?.logo?.url).toBeTruthy()
+    expect(Array.isArray(article.image)).toBe(true)
   })
 
-  test('breadcrumb nav is present (plain nav, not yet schema.org BreadcrumbList — FACT-194)', async ({
-    page,
-  }) => {
+  test('breadcrumb visual nav is present (Головна → Рубрика → Стаття)', async ({ page }) => {
     await page.goto('/')
-    await page.locator('.feed-item h2 a').first().click()
-    await expect(page.locator('nav.meta')).toBeVisible()
+    await page.locator('.feed-item h2 a, .feed-item h3 a').first().click()
+    await expect(page.locator('nav.breadcrumbs')).toBeVisible()
+  })
+})
+
+test.describe('rubric hub — pagination + tag page thin-page rules', () => {
+  test('rubric hub page 1 renders', async ({ page }) => {
+    await page.goto('/podii/')
+    await expect(page.locator('h1')).toBeVisible()
   })
 })
 

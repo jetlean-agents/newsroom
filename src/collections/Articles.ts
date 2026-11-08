@@ -38,6 +38,9 @@ export const Articles: CollectionConfig = {
   admin: {
     useAsTitle: 'title',
     defaultColumns: ['title', 'status', 'rubric', 'published_at', 'updated_at'],
+    // `doc.rubric` here is often just an id, not the populated relationship — the stable
+    // `/articles/{slug}` legacy path (301 → `/{rubric}/{slug}/`, see src/app/(frontend)/articles/[slug]/route.ts)
+    // avoids needing a second lookup just to build the preview link.
     preview: (doc) => `/articles/${doc.slug}`,
   },
   access: {
@@ -57,6 +60,23 @@ export const Articles: CollectionConfig = {
     { name: 'body', type: 'richText', editor: lexicalEditor({}), required: true },
     { name: 'rubric', type: 'relationship', relationTo: 'rubrics', required: true },
     { name: 'tags', type: 'relationship', relationTo: 'tags', hasMany: true },
+    {
+      name: 'content_type',
+      type: 'select',
+      required: true,
+      defaultValue: 'news',
+      options: [
+        { label: 'Новина (NewsArticle, прив’язана до події)', value: 'news' },
+        { label: 'Evergreen-пояснялка (Article)', value: 'evergreen' },
+      ],
+      admin: { description: 'Визначає JSON-LD тип: news → NewsArticle, evergreen → Article (tech-spec.md §3).' },
+    },
+    {
+      name: 'featured',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: { description: 'Закріплено редактором у блоці «Головне» на хабі рубрики та на головній.' },
+    },
     {
       name: 'sources',
       type: 'array',

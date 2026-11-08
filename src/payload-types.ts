@@ -283,6 +283,14 @@ export interface Article {
   };
   rubric: number | Rubric;
   tags?: (number | Tag)[] | null;
+  /**
+   * Визначає JSON-LD тип: news → NewsArticle, evergreen → Article (tech-spec.md §3).
+   */
+  content_type: 'news' | 'evergreen';
+  /**
+   * Закріплено редактором у блоці «Головне» на хабі рубрики та на головній.
+   */
+  featured?: boolean | null;
   sources?:
     | {
         title: string;
@@ -624,6 +632,8 @@ export interface ArticlesSelect<T extends boolean = true> {
   body?: T;
   rubric?: T;
   tags?: T;
+  content_type?: T;
+  featured?: T;
   sources?:
     | T
     | {

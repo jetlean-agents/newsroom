@@ -15,7 +15,7 @@ export default function ScrollTracker({
 
   useEffect(() => {
     function send(kind: string) {
-      fetch('/api/analytics/scroll', {
+      fetch('/api/analytics/scroll/', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ articleId, kind }),
@@ -43,7 +43,7 @@ export default function ScrollTracker({
     const link = document.getElementById('next-article-link')
     if (!link) return
     const onClick = () => {
-      fetch('/api/analytics/scroll', {
+      fetch('/api/analytics/scroll/', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ articleId, kind: 'next_article_click' }),

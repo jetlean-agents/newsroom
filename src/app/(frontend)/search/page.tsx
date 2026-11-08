@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
 import { thinPageRobotsMeta } from '@/lib/env'
+import { articlePath } from '@/lib/urls'
 import type { Pool } from 'pg'
 
 interface SearchRow {
@@ -10,6 +11,7 @@ interface SearchRow {
   slug: string
   lead: string
   published_at: string | null
+  rubric_slug: string
 }
 
 // tech-spec.md §8: internal search is never indexed, even once the site is otherwise indexable.
@@ -27,11 +29,13 @@ export default async function SearchPage({
   if (q && q.trim()) {
     const pool = (payload.db as unknown as { pool: Pool }).pool
     const { rows } = await pool.query<SearchRow>(
-      `select id, title, slug, lead, published_at
+      `select articles.id, articles.title, articles.slug, articles.lead, articles.published_at,
+              rubrics.slug as rubric_slug
        from articles
-       where status = 'published'
-         and search_vector @@ plainto_tsquery('simple', unaccent($1))
-       order by published_at desc
+       join rubrics on rubrics.id = articles.rubric_id
+       where articles.status = 'published'
+         and articles.search_vector @@ plainto_tsquery('simple', unaccent($1))
+       order by articles.published_at desc
        limit 20`,
       [q],
     )
@@ -48,7 +52,7 @@ export default async function SearchPage({
       {q ? <p className="meta">Знайдено: {results.length}</p> : null}
       {results.map((a) => (
         <article key={a.id} className="feed-item">
-          <h2><Link href={`/articles/${a.slug}`}>{a.title}</Link></h2>
+          <h2><Link href={articlePath(a.rubric_slug, a.slug)}>{a.title}</Link></h2>
           <p>{a.lead}</p>
         </article>
       ))}

@@ -17,7 +17,7 @@ npm run migrate         # creates tables + the unaccent extension/search_vector 
                          # (includes 20261107_220653_ingest_pipeline: sources/source-items/events
                          # tables + the Articles.event/duplicate_warning columns — required before
                          # starting the worker with INGEST_ENABLED=true, see below)
-npm run seed             # 3 rubrics + 3 demo articles + 3 page templates + test users
+npm run seed             # 12 rubrics + 4 demo articles + 3 page templates + test users
 npm run dev            # or: npm run build && npm start
 npm run worker         # pg-boss worker, separate process — see "Ingestion worker" below
 ```
@@ -77,7 +77,7 @@ migrate && npm start`) — no separate migration step. Seeding runs via a `seed`
 `docker-compose.yml` (`restart: "no"`, `npm run migrate && npm run seed`) — the only way to run
 a one-off command against the stage DB, since there is no Dokploy exec/SSH access to this host.
 
-It creates 3 demo rubrics/articles/page templates and three demo accounts
+It creates 12 rubrics (FACT-194), 4 demo articles, 3 page templates and three demo accounts
 (`admin@newsroom.test`, `editor@newsroom.test`, `author@newsroom.test` — emails hardcoded in
 `src/seed/index.ts`, not secrets). **All three accounts' passwords come from Dokploy env,
 never committed**: `SEED_ADMIN_PASSWORD` for admin, `SEED_DEMO_PASSWORD` (shared) for
@@ -91,7 +91,7 @@ change any of these passwords on stage: set a new value in Dokploy env, redeploy
 `newsroom` compose app.
 
 Safe to leave `seed` in the compose file long-term: it only runs once per `docker compose
-up`/redeploy, and the seed is idempotent (FACT-204) — rubrics/tags/pages/the three demo
+up`/redeploy, and the seed is idempotent (FACT-204) — rubrics/tags/pages/the demo
 articles are looked up by title before creating, so a re-run exits 0 and creates no
 duplicates; the three accounts' passwords still rotate to whatever `SEED_ADMIN_PASSWORD`/
 `SEED_DEMO_PASSWORD` currently are. The one-shot container should show `exited (0)` after

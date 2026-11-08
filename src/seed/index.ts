@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 import { getPayloadClient } from '@/lib/payload'
+import { RUBRICS_CONFIG } from '@/lib/rubricsConfig'
 
 /**
  * Demo content only — three rubrics and three clearly-labeled "Демо-матеріал"
@@ -90,17 +91,32 @@ async function main() {
     envVarName: 'SEED_ADMIN_PASSWORD',
   })
 
-  const rubricTitles = ['Суспільство', 'Економіка', 'Технології']
+  // 12 rubrics per Roman's 08.11 focus decision (epic FACT-164 / this issue) — replaces
+  // the stage-1 demo three-rubric set. Slugs come from the single config, never hardcoded
+  // here, so a re-run also repairs a rubric whose slug drifted from the config.
   const rubrics = []
-  for (const title of rubricTitles) {
-    rubrics.push(
-      (await findByTitle(payload, 'rubrics', title)) ||
-        (await payload.create({
+  for (const { title, slug, description } of RUBRICS_CONFIG) {
+    const existing = await findByTitle(payload, 'rubrics', title)
+    if (existing) {
+      rubrics.push(
+        existing.slug === slug
+          ? existing
+          : await payload.update({
+              collection: 'rubrics',
+              id: existing.id,
+              data: { slug },
+              disableTransaction: true,
+            }),
+      )
+    } else {
+      rubrics.push(
+        await payload.create({
           collection: 'rubrics',
-          data: { title, description: `Демо-рубрика: ${title}` },
+          data: { title, slug, description },
           disableTransaction: true,
-        })),
-    )
+        }),
+      )
+    }
   }
 
   const tag =
@@ -120,24 +136,53 @@ async function main() {
     },
   })
 
-  const articles = [
+  // rubricSlug picks the rubric by this issue's config slug, not array position — stays
+  // correct regardless of RUBRICS_CONFIG ordering.
+  const rubricBySlug = (slug: string) => rubrics.find((r) => r.slug === slug)!
+
+  const articles: Array<{
+    title: string
+    lead: string
+    rubricSlug: string
+    content_type: 'news' | 'evergreen'
+    featured: boolean
+    publish: boolean
+  }> = [
     {
       title: 'Демо-матеріал: запуск тестової платформи новин',
       lead: '[Демо-матеріал] Цей текст створено виключно для перевірки каркасу CMS, це не реальна новина.',
+      rubricSlug: 'podii',
+      content_type: 'news',
+      featured: false,
+      publish: true,
     },
     {
       title: 'Демо-матеріал: приклад статті про економіку',
       lead: '[Демо-матеріал] Приклад статті в рубриці «Економіка» для перевірки стрічки та пошуку.',
+      rubricSlug: 'ekonomika',
+      content_type: 'news',
+      featured: false,
+      publish: true,
     },
     {
       title: 'Демо-матеріал: приклад статті про технології',
       lead: '[Демо-матеріал] Приклад статті в рубриці «Технології» для перевірки картки статті.',
+      rubricSlug: 'tekhnolohii',
+      content_type: 'news',
+      featured: false,
+      publish: false,
+    },
+    {
+      title: 'Демо-матеріал: пояснялка — як працює каркас рубрик',
+      lead: '[Демо-матеріал] Evergreen-пояснялка для перевірки блоку «Поясняльні матеріали рубрики» і JSON-LD Article.',
+      rubricSlug: 'tekhnolohii',
+      content_type: 'evergreen',
+      featured: true,
+      publish: true,
     },
   ]
 
-  for (let i = 0; i < articles.length; i++) {
-    const a = articles[i]
-    const rubric = rubrics[i % rubrics.length]
+  for (const a of articles) {
     if (await findByTitle(payload, 'articles', a.title)) continue
     await payload.create({
       collection: 'articles',
@@ -145,8 +190,9 @@ async function main() {
         title: a.title,
         lead: a.lead,
         body: demoBodyRichText(`${a.lead} Повний текст цього демо-матеріалу є тестовим наповненням і не описує реальні події.`),
-        rubric: rubric.id,
+        rubric: rubricBySlug(a.rubricSlug).id,
         tags: [tag.id],
+        content_type: a.content_type,
         sources: [
           {
             title: 'Приклад джерела (demo)',
@@ -163,26 +209,22 @@ async function main() {
     })
   }
 
-  // Walk one article through the real workflow so there's something in the
-  // in_review queue AND something published, matching the admin review-queue AC.
-  // Looked up by the fixed demo titles (not a blind "first 10"), so a second
-  // run republishes the same two demo articles instead of drifting.
-  const first = await findByTitle(payload, 'articles', articles[0].title)
-  const second = await findByTitle(payload, 'articles', articles[1].title)
-  if (first) {
+  // Walk the "publish: true" demo articles through the real workflow so the hub/home
+  // pages have something real to render, while at least one stays in the in_review
+  // queue (admin review-queue AC). Looked up by the fixed demo titles (not a blind
+  // "first N"), so a second run republishes the same demo articles instead of drifting.
+  for (const a of articles.filter((a) => a.publish)) {
+    const doc = await findByTitle(payload, 'articles', a.title)
+    if (!doc) continue
+    // An unpublished doc (e.g. retracted in an earlier manual test) must stay unpublished —
+    // the Articles state machine has no unpublished -> published transition (by design).
+    if (doc.status === 'unpublished') continue
     await payload.update({
       collection: 'articles',
-      id: first.id,
-      data: { status: 'published', editor: editor.id },
-      user: editor,
-      disableTransaction: true,
-    })
-  }
-  if (second) {
-    await payload.update({
-      collection: 'articles',
-      id: second.id,
-      data: { status: 'published', editor: editor.id },
+      id: doc.id,
+      // Already-published docs only need `featured` kept in sync; in_review ones also
+      // transition (nextStatus === prevStatus is a no-op for the transition check either way).
+      data: { status: 'published', editor: editor.id, featured: a.featured },
       user: editor,
       disableTransaction: true,
     })
@@ -202,7 +244,7 @@ async function main() {
     })
   }
 
-  console.log('Seed complete: 3 rubrics, 1 tag, 3 users, 3 demo articles (2 published, 1 in_review), 3 page templates.')
+  console.log('Seed complete: 12 rubrics, 1 tag, 3 users, 4 demo articles (3 published incl. 1 featured + 1 evergreen, 1 in_review), 3 page templates.')
   process.exit(0)
 }
 

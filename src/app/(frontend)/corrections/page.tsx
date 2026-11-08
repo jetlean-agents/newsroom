@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
 import type { Article } from '@/payload-types'
 import { lastActivityDate, selectCorrectionsArticles } from '@/lib/corrections'
+import { articlePath } from '@/lib/urls'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +21,7 @@ export default async function CorrectionsPage() {
     },
     sort: '-updated_at',
     limit: 50,
+    depth: 1,
   })
 
   const items = selectCorrectionsArticles(result.docs as Article[])
@@ -30,9 +32,10 @@ export default async function CorrectionsPage() {
       <p>Усі суттєві виправлення до опублікованих матеріалів фіксуються тут та у самій статті.</p>
       {items.map((a: Article) => {
         const retractedAt = a.status === 'unpublished' ? lastActivityDate(a) : null
+        const rubricSlug = typeof a.rubric === 'object' ? a.rubric.slug : null
         return (
           <article key={a.id} className="feed-item">
-            <h2><Link href={`/articles/${a.slug}`}>{a.title}</Link></h2>
+            <h2>{rubricSlug ? <Link href={articlePath(rubricSlug, a.slug!)}>{a.title}</Link> : a.title}</h2>
             {a.status === 'unpublished' && (
               <p className="retraction-note">
                 Матеріал знято{retractedAt ? `: ${new Date(retractedAt).toLocaleDateString('uk-UA')}` : ''}

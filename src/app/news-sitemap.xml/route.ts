@@ -1,5 +1,6 @@
 import { getPayloadClient } from '@/lib/payload'
-import { SITE_URL, SITE_NAME, NOINDEX } from '@/lib/env'
+import { SITE_NAME, NOINDEX } from '@/lib/env'
+import { articlePath, absoluteUrl } from '@/lib/urls'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,11 +13,14 @@ export async function GET() {
     collection: 'articles',
     where: { and: [{ status: { equals: 'published' } }, { published_at: { greater_than: since } }] },
     limit: 1000,
+    depth: 1,
   })
 
-  const urls = articles.docs.map(
-    (a) => `<url>
-  <loc>${SITE_URL}/articles/${a.slug}</loc>
+  const urls = articles.docs
+    .filter((a) => typeof a.rubric === 'object')
+    .map(
+      (a) => `<url>
+  <loc>${absoluteUrl(articlePath((a.rubric as { slug: string }).slug, a.slug!))}</loc>
   <news:news>
     <news:publication>
       <news:name>${SITE_NAME}</news:name>
