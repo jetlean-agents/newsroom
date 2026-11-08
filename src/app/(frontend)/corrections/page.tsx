@@ -9,7 +9,16 @@ export default async function CorrectionsPage() {
   const payload = await getPayloadClient()
   const result = await payload.find({
     collection: 'articles',
-    where: { status: { in: ['published', 'unpublished'] } },
+    where: {
+      and: [
+        { status: { in: ['published', 'unpublished'] } },
+        // Filter non-empty `corrections` in the query itself, not after fetch —
+        // otherwise a DB with >50 published articles silently drops real
+        // corrections/retractions that just didn't land in the first page.
+        { 'corrections.note': { exists: true } },
+      ],
+    },
+    sort: '-updated_at',
     limit: 50,
   })
 
