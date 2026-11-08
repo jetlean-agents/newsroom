@@ -1,4 +1,5 @@
 import type { CollectionConfig, PayloadRequest } from 'payload'
+import { APIError } from 'payload'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { stableSlug } from '../lib/slug'
 import type { Tag } from '../payload-types'
@@ -7,20 +8,25 @@ import type { Tag } from '../payload-types'
  * Publication state machine: draft -> in_review -> published -> unpublished.
  * Only admin/editor may move a doc INTO "published", and only from "in_review" —
  * authors can take a draft to in_review but not past it.
+ *
+ * Throws `APIError` (not a bare `Error`) so Payload's REST layer returns the
+ * right status instead of a generic 500: 403 for a role that isn't allowed to
+ * make this transition at all, 400 for a role-valid transition from the wrong
+ * prior status.
  */
 function assertValidTransition(req: PayloadRequest, prevStatus: string | undefined, nextStatus: string) {
   if (nextStatus === prevStatus) return
   const role = req.user?.role
   if (nextStatus === 'published') {
     if (role !== 'admin' && role !== 'editor') {
-      throw new Error('Only editor/admin can publish an article.')
+      throw new APIError('Only editor/admin can publish an article.', 403)
     }
     if (prevStatus !== 'in_review') {
-      throw new Error('An article can only be published from in_review.')
+      throw new APIError('An article can only be published from in_review.', 400)
     }
   }
   if (nextStatus === 'unpublished' && role !== 'admin' && role !== 'editor') {
-    throw new Error('Only editor/admin can unpublish an article.')
+    throw new APIError('Only editor/admin can unpublish an article.', 403)
   }
 }
 
