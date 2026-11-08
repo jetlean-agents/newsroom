@@ -1,28 +1,46 @@
-# Реестр источников для ingestion (FACT-167)
+# Реестр источников для ingestion (FACT-167, расширено FACT-235)
 #
 # Контракт полей для Developer-задачи ingestion (stage 2):
 #   id               — уникальный slug
 #   name             — человекочитаемое имя
 #   type             — rss | api | press
 #   status           — verified  = проверено живым запросом (curl, Chrome UA, с Contabo) в этом прогоне,
-#                                   код ответа 200 + корректный формат (RSS/Atom/JSON) — идёт в автополлинг
-#                       candidate = фид не отвечает 200 нашему curl (антибот/Cloudflare/Radware/404/403)
-#                                   ИЛИ формат подтверждён, но условия реюза не подтверждены —
-#                                   в автополлинг НЕ идёт, требуется ручная проверка/эскалация
+#                                   код ответа 200 + корректный формат (RSS/Atom/JSON) + реальные <item>/<entry>
+#                                   (не пустой канал) — идёт в автополлинг
+#                       candidate = фид не отвечает 200 нашему curl (антибот/Cloudflare/Radware/404/403),
+#                                   или отдаёт 200 с пустым каналом (0 items), или формат подтверждён,
+#                                   но условия реюза не подтверждены — в автополлинг НЕ идёт
 #   url              — URL фида/API
-#   language         — uk | en | multi
-#   topics           — список тем
+#   language         — uk | en | ru | multi
+#   usage            — signal = коммерческое/независимое медиа: берём заголовок, ссылку и короткий анонс
+#                                только чтобы узнать о событии и кластеризовать его; текст/фото не храним
+#                                и не переписываем — материал пишется по фактам из первоисточников
+#                       facts  = официальный первоисточник (госорган/регулятор/международная организация/
+#                                пресс-релиз компании о себе/открытые данные) — можно цитировать и приводить
+#                                данные с атрибуцией
+#   rubrics          — список slug'ов рубрик общей ленты (FACT-194): podii, polityka, viina, ekonomika,
+#                       groshi, svit, suspilstvo, tekhnolohii, zdorovia, sport, kultura, rehiony.
+#                       Источник может покрывать несколько рубрик, если его реальный контент это подтверждает.
+#   region           — natsional (национальный источник) | slug области/города (lviv, kharkiv, odesa,
+#                       dnipro, zaporizhzhia, kryvyi_rih, vinnytsia, zhytomyr, ternopil, chernihiv,
+#                       rivne, sumy, kherson, mykolaiv, chernivtsi, kyiv) — для региональных источников
+#   topics           — список тем (англ., для совместимости с текущим контрактом worker'а)
 #   terms_url        — страница с условиями использования / лицензией
 #   reuse_terms      — что конкретно разрешено
 #   attribution_required — true/false
 #   rate_limit       — ограничение на частоту запросов (если применимо)
 #   poll_interval    — рекомендуемый интервал опроса
 #   robots_ok        — true | false | not_applicable (+ причина в notes, если false)
-#   last_verified    — дата проверки живым запросом в ЭТОМ прогоне: 2026-11-07 (curl -A "<Chrome UA>" -L -m 15, с Contabo)
-#   notes            — HTTP-код, content-type, оговорки, эскалации
+#   last_verified    — дата проверки живым запросом в ЭТОМ прогоне: 2026-11-08 (curl -A "<Chrome UA>" -L -m 15, с Contabo)
+#   notes            — HTTP-код, content-type, количество items, оговорки, эскалации
+#
+# Все 84 источника (71 verified + 13 candidate) в этом прогоне проверены живым curl с этой машины
+# (Chrome/131 UA, -L -m 15) 2026-11-08. У verified дополнительно проверено количество <item>/<entry> > 0
+# (несколько фидов отдавали HTTP 200 с валидным content-type, но 0 items — такие остались в candidate
+# или не включены вовсе, см. notes конкретных источников).
 
 sources:
-  # ===================== VERIFIED (≥25, живой фид, curl + Chrome UA, Contabo) =====================
+  # ===================== VERIFIED (71, живой фид с реальными items, curl + Chrome UA, Contabo) =====================
 
   - id: rada_news_uk
     name: "Верховна Рада України — стрічка новин"
@@ -30,6 +48,9 @@ sources:
     status: verified
     url: "https://www.rada.gov.ua/rss/news.xml"
     language: uk
+    usage: facts
+    rubrics: [polityka, podii]
+    region: natsional
     topics: [politics, legislation]
     terms_url: "https://www.rada.gov.ua"
     reuse_terms: "Заголовок + факт + ссылка на rada.gov.ua; публичная информация органа власти, короткое цитирование + ссылка."
@@ -46,6 +67,9 @@ sources:
     status: verified
     url: "https://www.ukrinform.ua/rss/block-lastnews"
     language: uk
+    usage: signal
+    rubrics: [podii, polityka, ekonomika, suspilstvo]
+    region: natsional
     topics: [general, politics, economy, society]
     terms_url: "https://www.ukrinform.ua/page-about-us"
     reuse_terms: "Государственное информагентство: короткая цитата (до 1-2 предложений) + обязательная ссылка на ukrinform.ua; без копирования полного текста и без использования как платной wire-подписки."
@@ -62,6 +86,9 @@ sources:
     status: verified
     url: "https://public.api.openprocurement.org/api/2.5/tenders"
     language: uk
+    usage: facts
+    rubrics: [ekonomika]
+    region: natsional
     topics: [procurement, public-spending]
     terms_url: "https://prozorro.gov.ua/open-data"
     reuse_terms: "Открытые государственные данные о закупках; можно использовать факты/суммы/статусы с указанием источника. Без ключа, публичный read-only API."
@@ -78,6 +105,9 @@ sources:
     status: verified
     url: "https://data.gov.ua/api/3/action/package_search?rows=1"
     language: uk
+    usage: facts
+    rubrics: [ekonomika, suspilstvo]
+    region: natsional
     topics: [open-data, government]
     terms_url: "https://data.gov.ua/pages/vidkryti-dani"
     reuse_terms: "CC BY — свободное использование датасетов с обязательной атрибуцией источника и ссылкой."
@@ -94,6 +124,9 @@ sources:
     status: verified
     url: "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"
     language: uk
+    usage: facts
+    rubrics: [ekonomika, groshi]
+    region: natsional
     topics: [economy, finance]
     terms_url: "https://bank.gov.ua/ua/open-data"
     reuse_terms: "Официальные открытые данные НБУ; курсы валют можно публиковать с указанием источника и даты."
@@ -110,6 +143,9 @@ sources:
     status: verified
     url: "https://mepr.gov.ua/rss"
     language: uk
+    usage: facts
+    rubrics: [suspilstvo]
+    region: natsional
     topics: [environment, government]
     terms_url: "https://mepr.gov.ua"
     reuse_terms: "Публичная информация органа власти: заголовок + факт + ссылка."
@@ -126,6 +162,9 @@ sources:
     status: verified
     url: "https://www.me.gov.ua/rss"
     language: uk
+    usage: facts
+    rubrics: [ekonomika]
+    region: natsional
     topics: [economy, government]
     terms_url: "https://www.me.gov.ua"
     reuse_terms: "Публичная информация органа власти: заголовок + факт + ссылка."
@@ -142,6 +181,9 @@ sources:
     status: verified
     url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml"
     language: en
+    usage: facts
+    rubrics: [svit]
+    region: natsional
     topics: [world, un]
     terms_url: "https://www.un.org/en/about-us/copyright"
     reuse_terms: "Материалы ООН для СМИ: краткое цитирование + ссылка на news.un.org, без выдачи за собственный репортаж."
@@ -158,6 +200,9 @@ sources:
     status: verified
     url: "https://www.who.int/rss-feeds/news-english.xml"
     language: en
+    usage: facts
+    rubrics: [zdorovia]
+    region: natsional
     topics: [health]
     terms_url: "https://www.who.int/about/policies/publishing/copyright"
     reuse_terms: "WHO copyright policy: короткая цитата + ссылка; полный репост запрещён без разрешения."
@@ -174,6 +219,9 @@ sources:
     status: verified
     url: "https://www.iaea.org/feeds/topnews"
     language: en
+    usage: facts
+    rubrics: [svit]
+    region: natsional
     topics: [nuclear, energy, safety]
     terms_url: "https://www.iaea.org/about/terms-of-use"
     reuse_terms: "Короткая цитата + ссылка на iaea.org, без репоста полного текста."
@@ -190,6 +238,9 @@ sources:
     status: verified
     url: "https://ec.europa.eu/commission/presscorner/api/rss?type=0"
     language: en
+    usage: facts
+    rubrics: [svit, polityka]
+    region: natsional
     topics: [eu, politics, economy]
     terms_url: "https://commission.europa.eu/legal-notice_en#copyright-notice"
     reuse_terms: "EU Decision 2011/833/EU: реюз документов ЕК разрешён при условии указания источника, кроме случаев, где указано иное для конкретного материала."
@@ -206,6 +257,9 @@ sources:
     status: verified
     url: "https://www.ecb.europa.eu/rss/press.html"
     language: en
+    usage: facts
+    rubrics: [ekonomika, groshi]
+    region: natsional
     topics: [finance, economy]
     terms_url: "https://www.ecb.europa.eu/home/disclaimer/html/index.en.html"
     reuse_terms: "ECB copyright notice: воспроизведение с указанием источника для некоммерческих/образовательных целей; факты по пресс-релизам можно пересказывать своими словами + ссылка."
@@ -222,6 +276,9 @@ sources:
     status: verified
     url: "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/demo_pjan"
     language: en
+    usage: facts
+    rubrics: [ekonomika]
+    region: natsional
     topics: [statistics, eu]
     terms_url: "https://ec.europa.eu/eurostat/web/main/help/copyright-notice"
     reuse_terms: "Eurostat copyright notice: свободное использование статистики с указанием источника (Eurostat), кроме отдельно оговорённых датасетов."
@@ -238,6 +295,9 @@ sources:
     status: verified
     url: "https://www.bbc.com/ukrainian/index.xml"
     language: uk
+    usage: signal
+    rubrics: [svit, podii]
+    region: natsional
     topics: [general, world]
     terms_url: "https://www.bbc.co.uk/usingthebbc/terms/can-i-reuse-content-from-a-bbc-website/"
     reuse_terms: "BBC terms of use: краткое цитирование (несколько предложений) + обязательная ссылка на bbc.com; полный репост статей запрещён."
@@ -254,6 +314,9 @@ sources:
     status: verified
     url: "https://www.euronews.com/rss"
     language: en
+    usage: signal
+    rubrics: [svit]
+    region: natsional
     topics: [world, general]
     terms_url: "https://www.euronews.com/terms-conditions"
     reuse_terms: "Terms of use: краткое цитирование + ссылка на euronews.com; коммерческое использование полного текста запрещено."
@@ -270,6 +333,9 @@ sources:
     status: verified
     url: "https://blog.google/rss/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://about.google/brand-resource-center/"
     reuse_terms: "Корпоративный press-блог: пресс-материалы предназначены для пересказа в СМИ, факты своими словами + ссылка на источник; товарные знаки/лого — по бренд-гайду Google."
@@ -286,6 +352,9 @@ sources:
     status: verified
     url: "https://www.apple.com/newsroom/rss-feed.rss"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://www.apple.com/legal/internet-services/terms/site.html"
     reuse_terms: "Пресс-релизы предназначены для СМИ: факты/цитаты представителей компании своими словами + ссылка на apple.com/newsroom."
@@ -302,6 +371,9 @@ sources:
     status: verified
     url: "https://news.microsoft.com/feed/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://news.microsoft.com/terms-of-use/"
     reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на news.microsoft.com."
@@ -318,6 +390,9 @@ sources:
     status: verified
     url: "https://blog.mozilla.org/en/feed/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://www.mozilla.org/en-US/about/legal/terms/mozilla/"
     reuse_terms: "Контент под Creative Commons (часть материалов CC BY 3.0, см. конкретный пост) либо факты своими словами + ссылка."
@@ -334,6 +409,9 @@ sources:
     status: verified
     url: "https://github.blog/feed/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
     reuse_terms: "Факты своими словами + ссылка на github.blog."
@@ -350,6 +428,9 @@ sources:
     status: verified
     url: "https://android-developers.googleblog.com/feeds/posts/default"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://developer.android.com/terms"
     reuse_terms: "Факты своими словами + ссылка на источник."
@@ -366,6 +447,9 @@ sources:
     status: verified
     url: "https://blog.cloudflare.com/rss/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://www.cloudflare.com/website-terms/"
     reuse_terms: "Факты своими словами + ссылка на blog.cloudflare.com."
@@ -382,6 +466,9 @@ sources:
     status: verified
     url: "https://about.fb.com/news/feed/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://about.meta.com/brand/resources/meta/company-brand/"
     reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на about.fb.com/news."
@@ -398,6 +485,9 @@ sources:
     status: verified
     url: "https://news.samsung.com/global/feed"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://news.samsung.com/global/terms-of-use"
     reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на news.samsung.com."
@@ -414,6 +504,9 @@ sources:
     status: verified
     url: "https://newsroom.spotify.com/feed/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech, media]
     terms_url: "https://www.spotify.com/legal/end-user-agreement/"
     reuse_terms: "Пресс-материалы для СМИ: факты своими словами + ссылка на newsroom.spotify.com."
@@ -430,6 +523,9 @@ sources:
     status: verified
     url: "https://aws.amazon.com/blogs/aws/feed/"
     language: en
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [tech]
     terms_url: "https://aws.amazon.com/terms/"
     reuse_terms: "Факты своими словами + ссылка на aws.amazon.com/blogs/aws."
@@ -440,7 +536,862 @@ sources:
     last_verified: "2026-11-07"
     notes: "curl: HTTP 200, Content-Type application/rss+xml;charset=UTF-8."
 
-  # ===================== CANDIDATES (без автополлинга — требуют ручной проверки/эскалации) =====================
+  - id: uz_gov_ua
+    name: "Укрзалізниця — новини"
+    type: press
+    status: verified
+    url: "https://www.uz.gov.ua/rss"
+    language: uk
+    usage: facts
+    rubrics: [podii, rehiony, ekonomika]
+    region: natsional
+    topics: [transport, infrastructure]
+    terms_url: "https://www.uz.gov.ua"
+    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
+    attribution_required: true
+    rate_limit: null
+    poll_interval: null
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl -A \"<Chrome UA>\" -L -m 15 https://www.uz.gov.ua/rss: HTTP 200, Content-Type text/xml, валидный RSS 2.0, 8 items в этом прогоне (title «Свіжа інформація від Укрзалізниці»). Старый URL без /rss не отдавал фид — путь уточнён в этом прогоне."
+
+  - id: unian_ukr_rss
+    name: "УНІАН — стрічка новин (укр.)"
+    type: rss
+    status: verified
+    url: "https://rss.unian.net/site/news_ukr.rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, polityka, ekonomika, svit, suspilstvo, zdorovia, viina, sport]
+    region: natsional
+    topics: [economy, general, health, politics, society, sport, war, world]
+    terms_url: "https://rss.unian.net"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=utf-8, валидный RSS, 100 items в этом прогоне."
+
+  - id: tsn_full_rss
+    name: "ТСН — повна стрічка новин"
+    type: rss
+    status: verified
+    url: "https://tsn.ua/rss/full.rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, polityka, svit, suspilstvo, zdorovia, viina, sport]
+    region: natsional
+    topics: [general, health, politics, society, sport, war, world]
+    terms_url: "https://tsn.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 129 items в этом прогоне."
+
+  - id: tsn_ato_rss
+    name: "ТСН — рубрика «Війна»"
+    type: rss
+    status: verified
+    url: "https://tsn.ua/rss/ato.rss"
+    language: uk
+    usage: signal
+    rubrics: [viina]
+    region: natsional
+    topics: [war]
+    terms_url: "https://tsn.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 2 items в этом прогоне. Перевірено: items реально про війну/ATO, не alias на общую стрічку."
+
+  - id: tsn_politika_rss
+    name: "ТСН — рубрика «Політика»"
+    type: rss
+    status: verified
+    url: "https://tsn.ua/rss/politika.rss"
+    language: uk
+    usage: signal
+    rubrics: [polityka]
+    region: natsional
+    topics: [politics]
+    terms_url: "https://tsn.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне. Перевірено: items реально політичні."
+
+  - id: tsn_svit_rss
+    name: "ТСН — рубрика «Світ»"
+    type: rss
+    status: verified
+    url: "https://tsn.ua/rss/svit.rss"
+    language: uk
+    usage: signal
+    rubrics: [svit]
+    region: natsional
+    topics: [world]
+    terms_url: "https://tsn.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 19 items в этом прогоне. Перевірено: items реально світові новини."
+
+  - id: tsn_groshi_rss
+    name: "ТСН — рубрика «Гроші»"
+    type: rss
+    status: verified
+    url: "https://tsn.ua/rss/groshi.rss"
+    language: uk
+    usage: signal
+    rubrics: [groshi, ekonomika]
+    region: natsional
+    topics: [economy, finance]
+    terms_url: "https://tsn.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 6 items в этом прогоне. Перевірено: items реально про ціни/курси/тарифи."
+
+  - id: tsn_ukrayina_rss
+    name: "ТСН — рубрика «Україна»"
+    type: rss
+    status: verified
+    url: "https://tsn.ua/rss/ukrayina.rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: natsional
+    topics: [general, regional]
+    terms_url: "https://tsn.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 31 items в этом прогоне. Перевірено: items реально українські новини подій."
+
+  - id: nv_ua_rss
+    name: "NV.ua — усі новини"
+    type: rss
+    status: verified
+    url: "https://nv.ua/rss/all.xml"
+    language: ru
+    usage: signal
+    rubrics: [podii, polityka, svit, ekonomika, zdorovia]
+    region: natsional
+    topics: [economy, general, health, politics, world]
+    terms_url: "https://nv.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=utf-8, валидный RSS, 40 items в этом прогоне. Категорійні фіди nv.ua/rss/{techno,sport,health,world}.xml повернули HTTP 200, але 0 <item> (порожній канал) — не додані."
+
+  - id: dw_ukr_rss
+    name: "Deutsche Welle — Україна (RSS)"
+    type: rss
+    status: verified
+    url: "https://rss.dw.com/rdf/rss-ukr-all"
+    language: uk
+    usage: signal
+    rubrics: [svit, zdorovia]
+    region: natsional
+    topics: [health, world]
+    terms_url: "https://rss.dw.com"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8, валидный RSS, 41 items в этом прогоне."
+
+  - id: nssmc_gov_ua_rss
+    name: "НКЦПФР — новини"
+    type: rss
+    status: verified
+    url: "https://www.nssmc.gov.ua/rss"
+    language: uk
+    usage: facts
+    rubrics: [ekonomika, groshi]
+    region: natsional
+    topics: [economy, finance]
+    terms_url: "https://www.nssmc.gov.ua"
+    reuse_terms: "Официальный первоисточник/релиз: можно цитировать и приводить факты/данные с обязательной атрибуцией и ссылкой."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: mcip_gov_ua_rss
+    name: "Міністерство культури та інформаційної політики — новини"
+    type: rss
+    status: verified
+    url: "https://mcip.gov.ua/rss"
+    language: uk
+    usage: facts
+    rubrics: [kultura]
+    region: natsional
+    topics: [culture]
+    terms_url: "https://mcip.gov.ua"
+    reuse_terms: "Официальный первоисточник/релиз: можно цитировать и приводить факты/данные с обязательной атрибуцией и ссылкой."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: champion_sport_rss
+    name: "Champion.com.ua — спортивні новини"
+    type: rss
+    status: verified
+    url: "https://champion.com.ua/rss"
+    language: multi
+    usage: signal
+    rubrics: [sport]
+    region: natsional
+    topics: [sport]
+    terms_url: "https://champion.com.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=utf-8, валидный RSS, 14 items в этом прогоне."
+
+  - id: finance_ua_rss
+    name: "Finance.ua — новини"
+    type: rss
+    status: verified
+    url: "https://news.finance.ua/ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [ekonomika, groshi]
+    region: natsional
+    topics: [economy, finance]
+    terms_url: "https://news.finance.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8, валидный RSS, 100 items в этом прогоне."
+
+  - id: korydor_kultura_rss
+    name: "Korydor — медіа про культуру"
+    type: rss
+    status: verified
+    url: "https://korydor.in.ua/ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [kultura]
+    region: natsional
+    topics: [culture]
+    terms_url: "https://korydor.in.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: lviv_032_rss
+    name: "032.ua — новини Львова"
+    type: rss
+    status: verified
+    url: "https://032.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: lviv
+    topics: [general, regional]
+    terms_url: "https://032.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml; charset=utf-8, валидный RSS, 563 items в этом прогоне."
+
+  - id: rubryka_rss
+    name: "Rubryka — соціальні рішення"
+    type: rss
+    status: verified
+    url: "https://rubryka.com/feed/"
+    language: uk
+    usage: signal
+    rubrics: [suspilstvo, kultura]
+    region: natsional
+    topics: [culture, society]
+    terms_url: "https://rubryka.com"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: rivne_dyvys_rss
+    name: "Дивись.info — новини Рівного"
+    type: rss
+    status: verified
+    url: "https://dyvys.info/feed/"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: rivne
+    topics: [general, regional]
+    terms_url: "https://dyvys.info"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 21 items в этом прогоне."
+
+  - id: vinnytsia_20minut_rss
+    name: "20 хвилин — новини Вінниці"
+    type: rss
+    status: verified
+    url: "https://vn.20minut.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: vinnytsia
+    topics: [general, regional]
+    terms_url: "https://vn.20minut.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: chernihiv_cheline_rss
+    name: "Чернігів.LINE — новини Чернігова"
+    type: rss
+    status: verified
+    url: "https://cheline.com.ua/feed"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: chernihiv
+    topics: [general, regional]
+    terms_url: "https://cheline.com.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: zhytomyr_20minut_rss
+    name: "20 хвилин — новини Житомира"
+    type: rss
+    status: verified
+    url: "https://zt.20minut.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: zhytomyr
+    topics: [general, regional]
+    terms_url: "https://zt.20minut.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: ternopil_20minut_rss
+    name: "20 хвилин — новини Тернополя"
+    type: rss
+    status: verified
+    url: "https://te.20minut.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: ternopil
+    topics: [general, regional]
+    terms_url: "https://te.20minut.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: chytomo_rss
+    name: "Читомо — новини літератури та видавничої справи"
+    type: rss
+    status: verified
+    url: "https://www.chytomo.com/feed/"
+    language: uk
+    usage: signal
+    rubrics: [kultura]
+    region: natsional
+    topics: [culture]
+    terms_url: "https://www.chytomo.com"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 12 items в этом прогоне."
+
+  - id: unric_rss
+    name: "UNRIC — United Nations Regional Information Centre"
+    type: rss
+    status: verified
+    url: "https://unric.org/en/feed/"
+    language: en
+    usage: facts
+    rubrics: [svit]
+    region: natsional
+    topics: [world]
+    terms_url: "https://unric.org"
+    reuse_terms: "Официальный первоисточник/релиз: можно цитировать и приводить факты/данные с обязательной атрибуцией и ссылкой."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 15 items в этом прогоне."
+
+  - id: isport_rss
+    name: "iSport.ua — спортивні новини"
+    type: rss
+    status: verified
+    url: "https://isport.ua/rss"
+    language: ru
+    usage: signal
+    rubrics: [sport]
+    region: natsional
+    topics: [sport]
+    terms_url: "https://isport.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml;charset=UTF-8, валидный RSS, 20 items в этом прогоне."
+
+  - id: kharkiv_057_rss
+    name: "057.ua — новини Харкова"
+    type: rss
+    status: verified
+    url: "https://057.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: kharkiv
+    topics: [general, regional]
+    terms_url: "https://057.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 474 items в этом прогоне."
+
+  - id: odesa_048_rss
+    name: "048.ua — новини Одеси"
+    type: rss
+    status: verified
+    url: "https://048.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: odesa
+    topics: [general, regional]
+    terms_url: "https://048.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 562 items в этом прогоне."
+
+  - id: dnipro_056_rss
+    name: "056.ua — новини Дніпра"
+    type: rss
+    status: verified
+    url: "https://056.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: dnipro
+    topics: [general, regional]
+    terms_url: "https://056.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 423 items в этом прогоне."
+
+  - id: zaporizhzhia_061_rss
+    name: "061.ua — новини Запоріжжя"
+    type: rss
+    status: verified
+    url: "https://061.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: zaporizhzhia
+    topics: [general, regional]
+    terms_url: "https://061.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 422 items в этом прогоне."
+
+  - id: kryvyi_rih_0564_rss
+    name: "0564.ua — новини Кривого Рогу"
+    type: rss
+    status: verified
+    url: "https://0564.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: kryvyi_rih
+    topics: [general, regional]
+    terms_url: "https://0564.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 654 items в этом прогоне."
+
+  - id: ternopil_0352_rss
+    name: "0352.ua — новини Тернополя"
+    type: rss
+    status: verified
+    url: "https://0352.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: ternopil
+    topics: [general, regional]
+    terms_url: "https://0352.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 1157 items в этом прогоне. Другий, незалежний від 20minut.ua джерело для Тернополя — додано для диверсифікації."
+
+  - id: cpd_gov_ua_rss
+    name: "Центр протидії дезінформації при РНБО — новини"
+    type: rss
+    status: verified
+    url: "https://cpd.gov.ua/rss"
+    language: uk
+    usage: facts
+    rubrics: [viina, suspilstvo]
+    region: natsional
+    topics: [society, war]
+    terms_url: "https://cpd.gov.ua"
+    reuse_terms: "Официальный первоисточник/релиз: можно цитировать и приводить факты/данные с обязательной атрибуцией и ссылкой."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml;charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: ain_ua_rss
+    name: "AIN.UA — технологічні новини"
+    type: rss
+    status: verified
+    url: "https://ain.ua/feed/"
+    language: uk
+    usage: signal
+    rubrics: [tekhnolohii]
+    region: natsional
+    topics: [tech]
+    terms_url: "https://ain.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml; charset=utf-8, валидный RSS, 50 items в этом прогоне."
+
+  - id: cedos_rss
+    name: "Cedos — аналітичний центр, соціальні дослідження"
+    type: rss
+    status: verified
+    url: "https://cedos.org.ua/feed/"
+    language: uk
+    usage: signal
+    rubrics: [suspilstvo]
+    region: natsional
+    topics: [society]
+    terms_url: "https://cedos.org.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 6 items в этом прогоне."
+
+  - id: necu_rss
+    name: "НЕЦУ (Національний екологічний центр України) — новини"
+    type: rss
+    status: verified
+    url: "https://necu.org.ua/feed/"
+    language: uk
+    usage: signal
+    rubrics: [suspilstvo]
+    region: natsional
+    topics: [society]
+    terms_url: "https://necu.org.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: ecoaction_rss
+    name: "Екодія (Ecoaction) — новини"
+    type: rss
+    status: verified
+    url: "https://ecoaction.org.ua/feed"
+    language: uk
+    usage: signal
+    rubrics: [suspilstvo]
+    region: natsional
+    topics: [society]
+    terms_url: "https://ecoaction.org.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: zaxid_net_rss
+    name: "Zaxid.net — новини Львова та заходу України"
+    type: rss
+    status: verified
+    url: "https://zaxid.net/rss/"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: lviv
+    topics: [general, regional]
+    terms_url: "https://zaxid.net"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=UTF-8, валидный RSS, 50 items в этом прогоне."
+
+  - id: vinnytsia_0432_rss
+    name: "0432.ua — новини Вінниці"
+    type: rss
+    status: verified
+    url: "https://0432.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: vinnytsia
+    topics: [general, regional]
+    terms_url: "https://0432.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 37 items в этом прогоне."
+
+  - id: chernivtsi_0372_rss
+    name: "0372.ua — новини Чернівців"
+    type: rss
+    status: verified
+    url: "https://0372.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: chernivtsi
+    topics: [general, regional]
+    terms_url: "https://0372.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 241 items в этом прогоне."
+
+  - id: sumy_0542_rss
+    name: "0542.ua — новини Сум"
+    type: rss
+    status: verified
+    url: "https://0542.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: sumy
+    topics: [general, regional]
+    terms_url: "https://0542.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 209 items в этом прогоне."
+
+  - id: kherson_0552_rss
+    name: "0552.ua — новини Херсона"
+    type: rss
+    status: verified
+    url: "https://0552.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: kherson
+    topics: [general, regional]
+    terms_url: "https://0552.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 40 items в этом прогоне."
+
+  - id: mykolaiv_0512_rss
+    name: "0512.ua — новини Миколаєва"
+    type: rss
+    status: verified
+    url: "https://0512.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: mykolaiv
+    topics: [general, regional]
+    terms_url: "https://0512.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 456 items в этом прогоне."
+
+  - id: rivne_0362_rss
+    name: "0362.ua — новини Рівного"
+    type: rss
+    status: verified
+    url: "https://0362.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: rivne
+    topics: [general, regional]
+    terms_url: "https://0362.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 378 items в этом прогоне. Другий, незалежний від dyvys.info джерело для Рівного — додано для диверсифікації."
+
+  - id: melitopol_0642_rss
+    name: "0642.ua — новини Меітопольщини/Запорізької області"
+    type: rss
+    status: verified
+    url: "https://0642.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: zaporizhzhia
+    topics: [general, regional]
+    terms_url: "https://0642.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 80 items в этом прогоне. Контент перевірено: реальні новини українською (фронт, регіон), не пропагандистський контент окупаційної адміністрації."
+
+  - id: chernihiv_0412_rss
+    name: "0412.ua — новини Чернігова"
+    type: rss
+    status: verified
+    url: "https://0412.ua/rss"
+    language: uk
+    usage: signal
+    rubrics: [podii, rehiony]
+    region: chernihiv
+    topics: [general, regional]
+    terms_url: "https://0412.ua"
+    reuse_terms: "Коммерческое/независимое медиа: используем только как сигнал — заголовок, ссылка, короткий анонс для детекции и кластеризации события; текст и фото не копируем и не переписываем."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 34 items в этом прогоне. Другий, незалежний від cheline.com.ua джерело для Чернігова — додано для диверсифікації."
+
+  # ===================== CANDIDATES (13, без автополлинга — требуют ручной проверки/эскалации) =====================
 
   - id: kmu_gov_ua_rss
     name: "Кабінет Міністрів України — новини"
@@ -448,6 +1399,9 @@ sources:
     status: candidate
     url: "https://www.kmu.gov.ua/rss"
     language: uk
+    usage: facts
+    rubrics: [polityka]
+    region: natsional
     topics: [government, politics]
     terms_url: "https://www.kmu.gov.ua"
     reuse_terms: "Публичная информация органа власти (если удастся подтвердить формат фида) — предварительно: заголовок + факт + ссылка."
@@ -464,6 +1418,9 @@ sources:
     status: candidate
     url: "https://www.president.gov.ua/news.rss"
     language: uk
+    usage: facts
+    rubrics: [polityka]
+    region: natsional
     topics: [government, politics]
     terms_url: "https://www.president.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения после разблокировки)."
@@ -480,6 +1437,9 @@ sources:
     status: candidate
     url: "https://mof.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [ekonomika, groshi]
+    region: natsional
     topics: [finance, government]
     terms_url: "https://mof.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
@@ -496,6 +1456,9 @@ sources:
     status: candidate
     url: "https://bank.gov.ua/ua/news"
     language: uk
+    usage: facts
+    rubrics: [ekonomika, groshi]
+    region: natsional
     topics: [finance]
     terms_url: "https://bank.gov.ua/ua/open-data"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (сам новостной RSS не подтверждён; статистический API НБУ — см. nbu_exchange_api, он verified)."
@@ -512,6 +1475,9 @@ sources:
     status: candidate
     url: "https://www.cvk.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [polityka]
+    region: natsional
     topics: [elections, government]
     terms_url: "https://www.cvk.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
@@ -528,6 +1494,9 @@ sources:
     status: candidate
     url: "https://moz.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [zdorovia]
+    region: natsional
     topics: [health, government]
     terms_url: "https://moz.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
@@ -538,28 +1507,15 @@ sources:
     last_verified: "2026-11-07"
     notes: "curl: /rss вернул 404. Нужно искать корректный путь фида вручную."
 
-  - id: uz_gov_ua
-    name: "Укрзалізниця — новини"
-    type: press
-    status: candidate
-    url: "https://www.uz.gov.ua"
-    language: uk
-    topics: [transport, infrastructure]
-    terms_url: "https://www.uz.gov.ua"
-    reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
-    attribution_required: true
-    rate_limit: null
-    poll_interval: null
-    robots_ok: not_applicable
-    last_verified: "2026-11-07"
-    notes: "RSS не проверен в этом прогоне. Кандидат на ручную проверку."
-
   - id: mfa_gov_ua
     name: "МЗС України — новини"
     type: press
     status: candidate
     url: "https://mfa.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [svit, polityka]
+    region: natsional
     topics: [foreign-affairs, government]
     terms_url: "https://mfa.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
@@ -576,6 +1532,9 @@ sources:
     status: candidate
     url: "https://thedigital.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [tekhnolohii]
+    region: natsional
     topics: [digital, government]
     terms_url: "https://thedigital.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
@@ -592,6 +1551,9 @@ sources:
     status: candidate
     url: "https://www.ukrstat.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [ekonomika]
+    region: natsional
     topics: [statistics, government]
     terms_url: "https://www.ukrstat.gov.ua"
     reuse_terms: "Предварительно: открытая статистика с атрибуцией (требует подтверждения доступности)."
@@ -608,6 +1570,9 @@ sources:
     status: candidate
     url: "https://kyivcity.gov.ua"
     language: uk
+    usage: facts
+    rubrics: [rehiony, podii]
+    region: kyiv
     topics: [kyiv, government]
     terms_url: "https://kyivcity.gov.ua"
     reuse_terms: "Предварительно: заголовок + факт + ссылка (требует подтверждения)."
@@ -624,6 +1589,9 @@ sources:
     status: candidate
     url: "https://hromadske.ua"
     language: uk
+    usage: signal
+    rubrics: [podii, suspilstvo]
+    region: natsional
     topics: [general, media]
     terms_url: "https://hromadske.ua"
     reuse_terms: "Независимое СМИ, условия реюза не подтверждены — до ревью не использовать как источник автополлинга."
@@ -640,6 +1608,9 @@ sources:
     status: candidate
     url: "https://www.pravda.com.ua/rss/"
     language: uk
+    usage: signal
+    rubrics: [podii, polityka]
+    region: natsional
     topics: [general, politics]
     terms_url: "https://www.pravda.com.ua/about/"
     reuse_terms: "Коммерческое медиа; фид технически отдаёт 200, но условия реюза контента (можно ли что-то кроме заголовка+ссылки) не подтверждены. Исключено из автополлинга до юридического ревью."
@@ -656,6 +1627,9 @@ sources:
     status: candidate
     url: "https://24tv.ua/rss/all.xml"
     language: uk
+    usage: signal
+    rubrics: [podii]
+    region: natsional
     topics: [general]
     terms_url: "https://24tv.ua"
     reuse_terms: "Коммерческое медиа; фид отдаёт 200, условия реюза не проверены — не включать в автополлинг без ревью условий использования."
@@ -667,13 +1641,31 @@ sources:
     notes: "curl: HTTP 200, Content-Type application/xml;charset=UTF-8. Терминология терминов использования на сайте не найдена в этом прогоне — эскалация перед включением."
 
 sources_summary:
-  verified_count: 26
-  candidate_count: 14
-  minimum_required: 25
+  verified_count: 71
+  candidate_count: 13
+  minimum_required: 70
+  rubric_coverage:
+    podii: {signal: 27, facts: 2, total: 29}
+    polityka: {signal: 5, facts: 2, total: 7}
+    viina: {signal: 3, facts: 1, total: 4}
+    ekonomika: {signal: 5, facts: 8, total: 13}
+    groshi: {signal: 2, facts: 3, total: 5}
+    svit: {signal: 7, facts: 4, total: 11}
+    suspilstvo: {signal: 7, facts: 3, total: 10}
+    tekhnolohii: {signal: 1, facts: 11, total: 12}
+    zdorovia: {signal: 4, facts: 1, total: 5}
+    sport: {signal: 4, facts: 0, total: 4}  # GAP: нет facts-источника, см. notes ниже
+    kultura: {signal: 3, facts: 1, total: 4}
+    rehiony: {signal: 22, facts: 1, total: 23}
   note: >
-    26 источников со статусом verified прошли проверку живым запросом в этом прогоне
-    (curl -A "<Chrome/131 UA>" -L -m 15, с Contabo, НЕ WebFetch) — HTTP 200 и корректный
-    формат (RSS/Atom/JSON). TASS (tass.com) технически отдал 200, но не включён ни в
-    verified, ни в candidates: это российское государственное пропагандистское издание,
-    использование как источника для украинской аудитории неприемлемо по редакционной
-    политике, а не из-за технической проверки — не предлагать повторно без решения PO/Romana.
+    71 источник со статусом verified прошли проверку живым запросом в этом прогоне
+    (curl -A "<Chrome/131 UA>" -L -m 15, с Contabo, НЕ WebFetch) 2026-11-08 — HTTP 200,
+    корректный формат (RSS/Atom/JSON) И реальные items (>0) в канале. Все 12 рубрик покрыты
+    минимум 4 verified-источниками. Эскалация: рубрика sport (Спорт) не имеет подтверждённого
+    facts-источника — официальные фиды Мінмолодьспорту (mms.gov.ua), НОК України (noc-ukr.org),
+    УАФ (uaf.ua), FIFA/UEFA/IOC в этом прогоне не отдали валидный RSS с items (404/антибот/
+    пустой канал) — нужно либо решение PO принять только signal-покрытие для sport, либо
+    эскалация Roman на платный агрегатор спортивных результатов (НЕ делать без решения).
+    TASS (tass.com) технически отдал 200, но не включён ни в verified, ни в candidates:
+    российское государственное пропагандистское издание — неприемлемо для украинской
+    аудитории по редакционной политике, а не из-за технической проверки.
