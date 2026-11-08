@@ -134,7 +134,11 @@ test.describe('visual — mobile + desktop', () => {
     await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true })
 
     await page.locator('.feed-item h2 a').first().click()
-    await expect(page.locator('h1')).toBeVisible()
+    await page.waitForURL(/\/articles\//)
+    // `.lead` only exists on the article template — home also has an <h1>,
+    // so asserting on h1 alone let a previous version of this test
+    // screenshot the still-home page before the SPA navigation landed.
+    await expect(page.locator('.lead')).toBeVisible()
     await page.screenshot({ path: 'test-results/article-mobile.png', fullPage: true })
   })
 
@@ -145,7 +149,8 @@ test.describe('visual — mobile + desktop', () => {
     await page.screenshot({ path: 'test-results/home-desktop.png', fullPage: true })
 
     await page.locator('.feed-item h2 a').first().click()
-    await expect(page.locator('h1')).toBeVisible()
+    await page.waitForURL(/\/articles\//)
+    await expect(page.locator('.lead')).toBeVisible()
     await page.screenshot({ path: 'test-results/article-desktop.png', fullPage: true })
   })
 })
