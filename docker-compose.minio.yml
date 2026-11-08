@@ -5,9 +5,18 @@
 # reproducibly 502'd (see jetlean-agents/avto-traffic docs/deploy.md). `app`/
 # `worker` reach this over its public URL (`S3_ENDPOINT`/`S3_PUBLIC_URL`), not
 # a cross-compose-project internal network.
+#
+# Images: `minio/minio` and `minio/mc` are gone from Docker Hub (MinIO retired
+# them) and `quay.io/minio/*` now rejects anonymous pulls (401 on the token
+# exchange, verified directly) — both would fail here with no useful build
+# log (FACT-170: a Dokploy compose deploy that can't pull its image errors in
+# ~2s with an empty log, easy to mistake for a config/validation bug). Using
+# Rancher's verbatim mirror of the same official binaries instead
+# (`rancher/mirrored-minio-*`, pinned release tags) — swap back to
+# `minio/minio`/`minio/mc` if/when they're restored.
 services:
   minio:
-    image: minio/minio:latest
+    image: rancher/mirrored-minio-minio:RELEASE.2023-07-07T07-13-57Z
     mem_limit: 256m
     cpus: 0.25
     restart: unless-stopped
@@ -18,13 +27,14 @@ services:
     volumes:
       - newsroom_minio_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # No `mc` in this image — hit MinIO's own liveness endpoint instead.
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   createbuckets:
-    image: minio/mc:latest
+    image: rancher/mirrored-minio-mc:RELEASE.2023-06-28T21-54-17Z
     mem_limit: 128m
     cpus: 0.25
     restart: "no"
