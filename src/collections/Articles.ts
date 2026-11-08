@@ -15,16 +15,17 @@ function idOf(value: unknown): number | undefined {
 }
 
 /**
- * `ai_assisted` is server-owned for any article tied to an ingestion event
- * (FACT-287, hardening after FACT-236 review): recomputeOriginality() only
- * sees `data.ai_assisted`, so an editor PATCHing `{status:'published',
- * ai_assisted:false}` on a pipeline-created draft would silently skip the
- * overlap check AND drop the AI-disclosure. Once a doc with an `event` has
- * been saved once, only an admin may change `ai_assisted` through the API —
- * everyone else's attempted change is discarded in favour of the stored
- * value. A brand-new doc (`originalDoc` undefined, e.g. draftFromEvent()
- * via the local API) is unaffected so the ingestion pipeline can still set
- * it at creation time.
+ * `ai_assisted` AND `event` are server-owned for any article that already
+ * has a stored `event` (FACT-287, hardening after FACT-236 review, tightened
+ * after a two-step bypass caught on re-review: PATCH 1 `{event:null}` clears
+ * the link while `ai_assisted` stays true, then PATCH 2 `{ai_assisted:false}`
+ * sees an `originalDoc` with no `event` and sails through — the guard must
+ * freeze `event` itself, not just the flag that depends on it). Once a doc
+ * with an `event` has been saved once, only an admin may change either field
+ * through the API — everyone else's attempted change to `ai_assisted` or
+ * `event` is discarded in favour of the stored value. A brand-new doc
+ * (`originalDoc` undefined, e.g. draftFromEvent() via the local API) is
+ * unaffected so the ingestion pipeline can still set them at creation time.
  */
 function enforceAiAssistedOwnership(
   req: PayloadRequest,
@@ -36,6 +37,7 @@ function enforceAiAssistedOwnership(
   if (!hasEvent) return
   if (req.user?.role === 'admin') return
   data.ai_assisted = originalDoc.ai_assisted ?? false
+  data.event = originalDoc.event
 }
 
 /**

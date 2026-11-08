@@ -221,6 +221,58 @@ describe('ai_assisted is server-owned once an event is stored (FACT-287)', () =>
     })
     expect(result.ai_assisted).toBe(false)
   })
+
+  it('rejects the two-step bypass: clearing event first, then dropping ai_assisted on the next PATCH', async () => {
+    // Step 1: editor tries to detach the event (ai_assisted untouched in this PATCH).
+    const afterStep1 = await runTransitionHook({
+      req: {
+        user: { id: 999, role: 'editor' },
+        payload: {
+          find: async () => ({ docs: copiedSource }),
+          findByID: async () => ({ email: 'someone@newsroom.test' }),
+        },
+      },
+      data: {
+        title: 'Уряд ухвалив рішення про тарифи',
+        lead: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.',
+        status: 'in_review',
+        event: null,
+      },
+      originalDoc: pipelineOriginalDoc,
+    })
+    // `event` must stay server-owned — the client's null is discarded.
+    expect(afterStep1.event).toBe(1)
+    expect(afterStep1.ai_assisted).toBe(true)
+
+    // Step 2: next PATCH's `originalDoc` reflects the (unchanged) saved state —
+    // still has `event: 1` — so the guard still applies, and the editor's
+    // attempt to drop ai_assisted while publishing is both discarded and
+    // still blocked by the overlap check.
+    let caught: any
+    try {
+      await runTransitionHook({
+        req: {
+          user: { id: 999, role: 'editor' },
+          payload: {
+            find: async () => ({ docs: copiedSource }),
+            findByID: async () => ({ email: 'someone@newsroom.test' }),
+          },
+        },
+        data: {
+          title: 'Уряд ухвалив рішення про тарифи',
+          lead: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.',
+          status: 'published',
+          event: null,
+          ai_assisted: false,
+        },
+        originalDoc: afterStep1,
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(APIError)
+    expect(caught.status).toBe(400)
+  })
 })
 
 describe('author/editor hand-off on publish (FACT-236 AC item 7)', () => {
