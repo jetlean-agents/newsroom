@@ -30,6 +30,9 @@ COPY --from=builder /app/tsconfig.json ./tsconfig.json
 # runtime using tsconfig.json — not from the compiled .next output — so the
 # full src tree has to ship in the runner image, not just the migrations dir.
 COPY --from=builder /app/src ./src
+# The ingestion worker (FACT-169) reads this at runtime via a plain fs.readFileSync,
+# not a bundled import — without it `npm run worker` crashes on boot with ENOENT.
+COPY --from=builder /app/config ./config
 EXPOSE 3000
 # Run pending migrations, then start the server. Seeding is a separate manual
 # step (`npm run seed`), not part of every container start.

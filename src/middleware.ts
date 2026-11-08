@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { robotsMeta, thinPageRobotsMeta } from '@/lib/env'
 
 export const config = {
-  // Content pages only — never /admin or /api: those must not inherit this header.
-  matcher: ['/', '/articles/:slug', '/rubrics/:slug', '/search', '/corrections'],
+  // Content pages + /admin (sandbox must stay fully noindex, FACT-170 review) — never
+  // /api: that must not inherit this header.
+  matcher: ['/', '/articles/:slug', '/rubrics/:slug', '/search', '/corrections', '/admin', '/admin/:path*'],
 }
 
 /**

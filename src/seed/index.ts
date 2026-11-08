@@ -1,3 +1,4 @@
+import type { Payload } from 'payload'
 import { getPayloadClient } from '@/lib/payload'
 
 /**
@@ -10,23 +11,71 @@ import { getPayloadClient } from '@/lib/payload'
  * can leave a connection idle-in-transaction across calls, deadlocking the
  * next statement. Each call here is already a single all-or-nothing write.
  */
+
+/**
+ * Every demo account rotates its password on every seed run rather than only
+ * setting it once — FACT-170 PO review: `editor`/`author` can publish/unpublish
+ * articles and edit rubrics/tags/pages just like `admin` (`src/collections/
+ * Articles.ts`'s publish-transition check allows `editor` too), so a known
+ * hardcoded password on any of them is the same public-sandbox-with-a-known-
+ * password risk the first review flagged for `admin` alone. In production
+ * (always true inside the Docker image — see Dockerfile) this throws instead
+ * of falling back to a known default if the required env var isn't set, so a
+ * misconfigured deploy fails loud rather than shipping a guessable password.
+ */
+async function upsertRotatingUser(
+  payload: Payload,
+  { email, password, name, role, envVarName }: { email: string; password: string | undefined; name: string; role: string; envVarName: string },
+) {
+  if (process.env.NODE_ENV === 'production' && !password) {
+    throw new Error(`${envVarName} must be set to seed/rotate the ${role} account (${email}) in production.`)
+  }
+  const finalPassword = password || 'password123'
+
+  const existing = await payload.find({
+    collection: 'users',
+    where: { email: { equals: email } },
+    limit: 1,
+  })
+  if (existing.docs.length > 0) {
+    await payload.update({
+      collection: 'users',
+      id: existing.docs[0].id,
+      data: { password: finalPassword },
+      disableTransaction: true,
+    })
+    return existing.docs[0]
+  }
+  return payload.create({
+    collection: 'users',
+    data: { email, password: finalPassword, name, role },
+    disableTransaction: true,
+  })
+}
+
 async function main() {
   const payload = await getPayloadClient()
 
-  const editor = await payload.create({
-    collection: 'users',
-    data: { email: 'editor@newsroom.test', password: 'password123', name: 'Тест Редактор (demo user)', role: 'editor' },
-    disableTransaction: true,
+  const editor = await upsertRotatingUser(payload, {
+    email: 'editor@newsroom.test',
+    password: process.env.SEED_DEMO_PASSWORD,
+    name: 'Тест Редактор (demo user)',
+    role: 'editor',
+    envVarName: 'SEED_DEMO_PASSWORD',
   })
-  const author = await payload.create({
-    collection: 'users',
-    data: { email: 'author@newsroom.test', password: 'password123', name: 'Тест Автор (demo user)', role: 'author' },
-    disableTransaction: true,
+  const author = await upsertRotatingUser(payload, {
+    email: 'author@newsroom.test',
+    password: process.env.SEED_DEMO_PASSWORD,
+    name: 'Тест Автор (demo user)',
+    role: 'author',
+    envVarName: 'SEED_DEMO_PASSWORD',
   })
-  await payload.create({
-    collection: 'users',
-    data: { email: 'admin@newsroom.test', password: 'password123', name: 'Тест Адмін (demo user)', role: 'admin' },
-    disableTransaction: true,
+  await upsertRotatingUser(payload, {
+    email: process.env.SEED_ADMIN_EMAIL || 'admin@newsroom.test',
+    password: process.env.SEED_ADMIN_PASSWORD,
+    name: 'Тест Адмін (demo user)',
+    role: 'admin',
+    envVarName: 'SEED_ADMIN_PASSWORD',
   })
 
   const rubricTitles = ['Суспільство', 'Економіка', 'Технології']

@@ -44,18 +44,62 @@ re-run on every worker restart and every 15 minutes), then polls each enabled so
 `poll_interval`. No separate one-time setup step is needed beyond the migration above — a fresh
 `sources` table populates itself on first worker start.
 
-## Prod-like / stage-style (own Postgres, via docker-compose.yml)
+## Stage (Dokploy sandbox) — `docker-compose.yml` + `docker-compose.minio.yml`
 
-```bash
-docker compose up --build
-```
+Deployed as **two** Dokploy compose apps in one project (`Newsroom`), same split Avto-traffic
+uses for Umami (`jetlean-agents/avto-traffic` `docs/deploy.md`): routing two domains to two
+services inside a single Dokploy compose app has reproducibly `502`'d there, so media storage
+is its own compose app instead of a second domain on the main one.
 
-This starts the app **and its own Postgres** (allowed here because this compose file is the
-stage/Dokploy-style artifact, not an extra dev-only DB container on the shared host). The app
-binds to `100.94.103.26:6020`. Stop it with `docker compose down` when you're done reviewing.
+| compose app | compose file | services | domain → service:port |
+|---|---|---|---|
+| `newsroom` | `docker-compose.yml` | `app`, `worker`, `db` (own Postgres) | `news.bigear.uk` → `app:3000` |
+| `newsroom-minio` | `docker-compose.minio.yml` | `minio`, `createbuckets` (one-shot) | `news-media.bigear.uk` → `minio:9000` |
 
-Dokploy/stage deploys from this same `docker-compose.yml`, but with its own `db` service and
-env values — the shared dev Postgres never goes into stage/prod env.
+No compose service publishes a host port — Dokploy/Traefik routes each domain straight to the
+service's internal container port via the Dokploy domain config, not a compose `ports:` mapping
+(there is no stable host IP on the Dokploy host to bind to, unlike the Contabo dev node).
+
+Both this project's Postgres (`db`) and its MinIO (`minio`) are **this project's own** —
+never the shared Contabo Postgres/Redis, never a Tailscale/`100.x` address in stage env (repo
+`CLAUDE.md`, "Окружения: dev / stage / prod"). `app`/`worker` reach MinIO over its **public**
+URL (`S3_ENDPOINT`/`S3_PUBLIC_URL` = `https://news-media.bigear.uk`), not a cross-compose-app
+internal network — Docker Compose service DNS names only resolve within the same compose
+project, and two separate Dokploy compose apps are two separate projects.
+
+`createbuckets` (image `minio/mc`) runs once after `minio` is healthy: creates the `S3_BUCKET`
+bucket if missing and sets it to anonymous-download (`mc anonymous set download`) so uploaded
+media is publicly readable without signed URLs — matches the `media` collection's own
+`access.read: () => true`. Re-running it on every deploy is safe (idempotent).
+
+`app`'s migration runs automatically on every container start (`Dockerfile`'s `CMD`: `npm run
+migrate && npm start`) — no separate migration step. Seeding runs via a `seed` service in
+`docker-compose.yml` (`restart: "no"`, `npm run migrate && npm run seed`) — the only way to run
+a one-off command against the stage DB, since there is no Dokploy exec/SSH access to this host.
+
+It creates 3 demo rubrics/articles/page templates and three demo accounts
+(`admin@newsroom.test`, `editor@newsroom.test`, `author@newsroom.test` — emails hardcoded in
+`src/seed/index.ts`, not secrets). **All three accounts' passwords come from Dokploy env,
+never committed**: `SEED_ADMIN_PASSWORD` for admin, `SEED_DEMO_PASSWORD` (shared) for
+editor/author. Required in production or seed throws rather than falling back to a
+guessable default — FACT-170 PO review flagged this twice: first for admin, then again for
+editor, since `src/collections/Articles.ts`'s publish-transition check allows `editor` to
+publish/unpublish just like `admin`, so a hardcoded editor password was the same
+public-sandbox-with-a-known-password risk. Re-running the `seed` service **rotates** all
+three existing accounts to whatever those env vars currently are — that's also how to
+change any of these passwords on stage: set a new value in Dokploy env, redeploy the
+`newsroom` compose app.
+
+Safe to leave `seed` in the compose file long-term: it only runs once per `docker compose
+up`/redeploy, and content creation past the users section still fails loudly (exit 1) on a
+re-run's duplicate rubrics/articles — but that's after the password rotations above it have
+already applied, so the one-shot container showing "exited 1" on a second run is expected,
+not a sign the rotation failed.
+
+Locally on Contabo, `docker compose up --build` still works for a quick prod-like smoke test
+(builds the image, starts `app`+`worker`+`db`) — just without a published port; reach it with
+`docker compose exec app curl localhost:3000/` or add a temporary `ports:` override file, not a
+change to the tracked compose file.
 
 ## Lint
 
@@ -69,5 +113,20 @@ remains, intentionally not addressed (would need a width/height-aware `next/imag
 
 ## Hostname
 
-No `*.bigear.uk` hostname has been assigned yet — DevOps to pick one and wire it up; this
-service is not deployed anywhere public from this run.
+`news.bigear.uk` (app) and `news-media.bigear.uk` (MinIO, media only) — both already point at
+the Dokploy server via the existing `*.bigear.uk` wildcard; no new Cloudflare DNS record was
+created, only the domain/app config inside Dokploy (FACT-170).
+
+## Prod checklist (not sandbox — do not action without Roman)
+
+1. Register the real prod domain and point its DNS at the prod Dokploy host — not `*.bigear.uk`.
+2. A **separate** Dokploy project/environment, not this sandbox project — same architecture
+   (`app`+`worker`+own `db`, `minio` in its own compose app), real `SITE_URL`/`SITE_NAME`,
+   `NOINDEX=false` only once the brand/content is actually ready to be indexed.
+3. Swap MinIO for Cloudflare R2 (`S3_*` already provider-agnostic — only the env values change,
+   no code change) per the team-wide media-storage rule; ops sets the bucket and keys, not
+   agents.
+4. Decide on `AI_PROVIDER`/`AI_API_KEY` only with Roman's explicit sign-off (epic FACT-164) —
+   sandbox stays `none`.
+5. A real scheduled Postgres backup — sandbox has none (data is reproducible from migrations +
+   seed + the worker's next ingestion cycle).
