@@ -55,7 +55,11 @@ services:
       INGEST_ENABLED: "true"
       INGEST_INCLUDE_CANDIDATES: "false"
       EVENT_CONFIRMATION_MIN_SOURCES: ${EVENT_CONFIRMATION_MIN_SOURCES:-2}
-      AI_PROVIDER: none
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      AI_MODEL: ${AI_MODEL:-claude-sonnet-5-5}
+      AI_API_KEY: ${AI_API_KEY:-}
+      ORIGINALITY_MAX_OVERLAP: ${ORIGINALITY_MAX_OVERLAP:-0.5}
+      DRAFTS_PER_DAY: ${DRAFTS_PER_DAY:-20}
     depends_on:
       db:
         condition: service_healthy

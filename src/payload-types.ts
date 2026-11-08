@@ -321,11 +321,33 @@ export interface Article {
   status: 'draft' | 'in_review' | 'published' | 'unpublished';
   author: number | User;
   editor?: (number | null) | User;
+  /**
+   * When draftFromEvent() created this article. Used to enforce DRAFTS_PER_DAY (Articles has no createdAt — timestamps: false above).
+   */
+  drafted_at?: string | null;
   ai_assisted?: boolean | null;
   /**
    * Required when ai_assisted is checked.
    */
   ai_disclosure?: string | null;
+  /**
+   * Shingle overlap (0-1) of the draft against its most-copied-from source. Server-owned: recomputed on every save of an ai_assisted article (src/collections/Articles.ts recomputeOriginality, src/lib/ai/originality.ts) — any client-submitted value for this field is ignored.
+   */
+  originality_overlap?: number | null;
+  /**
+   * True when originality_overlap > ORIGINALITY_MAX_OVERLAP — blocks the draft -> published transition until rewritten. Server-owned, see originality_overlap.
+   */
+  originality_blocked?: boolean | null;
+  /**
+   * Numbers/dates/names in the draft not found in any source — "перевірити" pointers for the reviewing editor, non-blocking. Server-owned, see originality_overlap.
+   */
+  fact_flags?:
+    | {
+        value: string;
+        kind: 'number' | 'date' | 'name';
+        id?: string | null;
+      }[]
+    | null;
   corrections?:
     | {
         date: string;
@@ -652,8 +674,18 @@ export interface ArticlesSelect<T extends boolean = true> {
   status?: T;
   author?: T;
   editor?: T;
+  drafted_at?: T;
   ai_assisted?: T;
   ai_disclosure?: T;
+  originality_overlap?: T;
+  originality_blocked?: T;
+  fact_flags?:
+    | T
+    | {
+        value?: T;
+        kind?: T;
+        id?: T;
+      };
   corrections?:
     | T
     | {

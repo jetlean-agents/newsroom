@@ -2,6 +2,7 @@ import * as migration_20261107_114746_initial from './20261107_114746_initial';
 import * as migration_20261107_120000_search_vector from './20261107_120000_search_vector';
 import * as migration_20261107_220653_ingest_pipeline from './20261107_220653_ingest_pipeline';
 import * as migration_20261108_114909_add_article_content_type_featured from './20261108_114909_add_article_content_type_featured';
+import * as migration_20261108_161318_fact236_ai_draft_fields from './20261108_161318_fact236_ai_draft_fields';
 
 export const migrations = [
   {
@@ -22,6 +23,11 @@ export const migrations = [
   {
     up: migration_20261108_114909_add_article_content_type_featured.up,
     down: migration_20261108_114909_add_article_content_type_featured.down,
-    name: '20261108_114909_add_article_content_type_featured'
+    name: '20261108_114909_add_article_content_type_featured',
+  },
+  {
+    up: migration_20261108_161318_fact236_ai_draft_fields.up,
+    down: migration_20261108_161318_fact236_ai_draft_fields.down,
+    name: '20261108_161318_fact236_ai_draft_fields'
   },
 ];

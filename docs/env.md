@@ -15,8 +15,11 @@
 | `INGEST_ENABLED` | no | `false` | Master switch for `npm run worker`'s ingestion jobs (poll/dedup/draft). `false` = worker only runs the pre-existing `recompute-popular` job. See `docs/editorial-pipeline.md`. |
 | `INGEST_INCLUDE_CANDIDATES` | no | `false` | Also autopoll `status: candidate` sources from `config/sources.yaml` (normally excluded — needs manual review first). |
 | `EVENT_CONFIRMATION_MIN_SOURCES` | no | `2` | Distinct publishers an event cluster needs before a draft article is created. |
-| `AI_PROVIDER` | no | `none` | Draft-assist provider. `none` keeps drafts a plain source digest with no AI-written prose. Do not point this at a real provider, and do not set `AI_API_KEY`, without Roman's explicit sign-off (see epic FACT-164). |
-| `AI_API_KEY` | no | (unset) | Only a name reserved for the future AI provider; no value is ever committed. |
+| `AI_PROVIDER` | no | `none` | Draft-assist provider: `none` (plain source digest, no AI prose), `mock` (deterministic stand-in, used in tests/e2e, no key needed), or `anthropic` (real provider — Roman's 08.11 decision, $30/mo budget via Autoreg's secrets store, FACT-262). Do not set `anthropic` with a real `AI_API_KEY` without Roman's explicit sign-off (see epic FACT-164). See `docs/editorial-pipeline.md`. |
+| `AI_MODEL` | no | `claude-sonnet-5-5` | Model name passed to the `anthropic` provider. Unused by `none`/`mock`. |
+| `AI_API_KEY` | no | (unset) | Only read when `AI_PROVIDER=anthropic`. No value is ever committed; `AnthropicDraftProvider` throws a clear error (not a silent call-out) if this is unset. |
+| `ORIGINALITY_MAX_OVERLAP` | no | `0.5` | Anti-copypaste threshold (0-1): a draft whose word-shingle overlap with its most-copied-from source exceeds this is `originality_blocked` and can't be published until rewritten (`src/lib/ai/originality.ts`). Only applies to AI-generated drafts (`mock`/`anthropic`); the `none` provider's plain digest is never AI prose, so it's exempt. |
+| `DRAFTS_PER_DAY` | no | `20` | Hard cap on new drafts `draftFromEvent()` creates per UTC calendar day (any provider), so the review queue can't outgrow the editor(s) actually clearing it. |
 | `UNSPLASH_ACCESS_KEY` | no | (unset) | Enables the Unsplash image-search provider (`src/lib/images/providers.ts`). Unset = provider disabled, no error. |
 | `PEXELS_API_KEY` | no | (unset) | Same, for Pexels. Wikimedia Commons needs no key and is always enabled. |
 | `S3_ENDPOINT` | stage/prod | `https://minio.internal:9000` | S3-compatible endpoint for the `media` collection. Unset `S3_BUCKET` = Payload falls back to local-disk upload (dev-only). |
