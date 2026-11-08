@@ -1,4 +1,11 @@
 export const SITE_URL = process.env.SITE_URL || 'http://localhost:3000'
+/**
+ * Base URL for server-to-self requests (e.g. middleware → API route). Must never be the
+ * public SITE_URL: inside the container that hairpins back out through the edge/proxy for
+ * the public hostname, which can hang or fail depending on network/DNS/TLS setup there
+ * (FACT-244). Defaults to the app's own loopback address + listening port.
+ */
+export const INTERNAL_BASE_URL = process.env.INTERNAL_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`
 export const SITE_NAME = process.env.SITE_NAME || 'Newsroom (sandbox)'
 export const NOINDEX = process.env.NOINDEX !== 'false'
 export const ANALYTICS_ENABLED = process.env.ANALYTICS_ENABLED === 'true'
