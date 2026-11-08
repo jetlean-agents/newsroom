@@ -15,6 +15,30 @@ function idOf(value: unknown): number | undefined {
 }
 
 /**
+ * `ai_assisted` is server-owned for any article tied to an ingestion event
+ * (FACT-287, hardening after FACT-236 review): recomputeOriginality() only
+ * sees `data.ai_assisted`, so an editor PATCHing `{status:'published',
+ * ai_assisted:false}` on a pipeline-created draft would silently skip the
+ * overlap check AND drop the AI-disclosure. Once a doc with an `event` has
+ * been saved once, only an admin may change `ai_assisted` through the API —
+ * everyone else's attempted change is discarded in favour of the stored
+ * value. A brand-new doc (`originalDoc` undefined, e.g. draftFromEvent()
+ * via the local API) is unaffected so the ingestion pipeline can still set
+ * it at creation time.
+ */
+function enforceAiAssistedOwnership(
+  req: PayloadRequest,
+  data: Record<string, unknown>,
+  originalDoc?: Record<string, unknown>,
+) {
+  if (!originalDoc) return
+  const hasEvent = idOf(originalDoc.event) != null
+  if (!hasEvent) return
+  if (req.user?.role === 'admin') return
+  data.ai_assisted = originalDoc.ai_assisted ?? false
+}
+
+/**
  * Originality/fact-check fields are entirely server-owned (PO review 08.11):
  * recomputed from the event's source-items on every save of an ai_assisted
  * article, never taken from client-submitted data — a PATCH claiming
@@ -234,6 +258,7 @@ export const Articles: CollectionConfig = {
       async ({ req, data, originalDoc }) => {
         data.slug = stableSlug(data.title, data.slug)
 
+        enforceAiAssistedOwnership(req, data, originalDoc)
         await recomputeOriginality(req, data, originalDoc)
 
         const prevStatus = originalDoc?.status
