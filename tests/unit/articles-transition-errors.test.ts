@@ -129,6 +129,152 @@ describe('Articles originality guard — server-recomputed, not client-trusted (
   })
 })
 
+describe('ai_assisted is server-owned once an event is stored (FACT-287)', () => {
+  const copiedSource = [
+    { title: 'Уряд ухвалив рішення про тарифи', summary: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.' },
+  ]
+  const pipelineOriginalDoc = { status: 'in_review', event: 1, ai_assisted: true }
+
+  it('rejects the recomputeOriginality bypass: editor PATCHing ai_assisted:false on a pipeline draft', async () => {
+    let caught: any
+    try {
+      await runTransitionHook({
+        req: {
+          user: { id: 999, role: 'editor' },
+          payload: {
+            find: async () => ({ docs: copiedSource }),
+            findByID: async () => ({ email: 'someone@newsroom.test' }),
+          },
+        },
+        data: {
+          title: 'Уряд ухвалив рішення про тарифи',
+          lead: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.',
+          status: 'published',
+          ai_assisted: false,
+        },
+        originalDoc: pipelineOriginalDoc,
+      })
+    } catch (err) {
+      caught = err
+    }
+    // Server ignores the client's ai_assisted:false, re-runs the overlap check, and still blocks.
+    expect(caught).toBeInstanceOf(APIError)
+    expect(caught.status).toBe(400)
+  })
+
+  it('keeps ai_assisted true in the saved data despite the client sending false', async () => {
+    const result = await runTransitionHook({
+      req: {
+        user: { id: 999, role: 'editor' },
+        payload: {
+          find: async () => ({ docs: [] }),
+          findByID: async () => ({ email: 'someone@newsroom.test' }),
+        },
+      },
+      data: {
+        title: 'Будь-яка новина',
+        lead: 'Будь-який лід',
+        status: 'in_review',
+        ai_assisted: false,
+      },
+      originalDoc: { status: 'draft', event: 1, ai_assisted: true },
+    })
+    expect(result.ai_assisted).toBe(true)
+  })
+
+  it('lets an admin actually change ai_assisted on a pipeline-created article', async () => {
+    const result = await runTransitionHook({
+      req: {
+        user: { id: 1, role: 'admin' },
+        payload: {
+          find: async () => ({ docs: [] }),
+          findByID: async () => ({ email: 'someone@newsroom.test' }),
+        },
+      },
+      data: {
+        title: 'Будь-яка новина',
+        lead: 'Будь-який лід',
+        status: 'in_review',
+        ai_assisted: false,
+      },
+      originalDoc: { status: 'draft', event: 1, ai_assisted: true },
+    })
+    expect(result.ai_assisted).toBe(false)
+  })
+
+  it('still allows setting ai_assisted freely on an article with no event', async () => {
+    const result = await runTransitionHook({
+      req: {
+        user: { id: 999, role: 'editor' },
+        payload: {
+          find: async () => ({ docs: [] }),
+          findByID: async () => ({ email: 'someone@newsroom.test' }),
+        },
+      },
+      data: {
+        title: 'Будь-яка новина',
+        lead: 'Будь-який лід',
+        status: 'in_review',
+        ai_assisted: false,
+      },
+      originalDoc: { status: 'draft', ai_assisted: true },
+    })
+    expect(result.ai_assisted).toBe(false)
+  })
+
+  it('rejects the two-step bypass: clearing event first, then dropping ai_assisted on the next PATCH', async () => {
+    // Step 1: editor tries to detach the event (ai_assisted untouched in this PATCH).
+    const afterStep1 = await runTransitionHook({
+      req: {
+        user: { id: 999, role: 'editor' },
+        payload: {
+          find: async () => ({ docs: copiedSource }),
+          findByID: async () => ({ email: 'someone@newsroom.test' }),
+        },
+      },
+      data: {
+        title: 'Уряд ухвалив рішення про тарифи',
+        lead: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.',
+        status: 'in_review',
+        event: null,
+      },
+      originalDoc: pipelineOriginalDoc,
+    })
+    // `event` must stay server-owned — the client's null is discarded.
+    expect(afterStep1.event).toBe(1)
+    expect(afterStep1.ai_assisted).toBe(true)
+
+    // Step 2: next PATCH's `originalDoc` reflects the (unchanged) saved state —
+    // still has `event: 1` — so the guard still applies, and the editor's
+    // attempt to drop ai_assisted while publishing is both discarded and
+    // still blocked by the overlap check.
+    let caught: any
+    try {
+      await runTransitionHook({
+        req: {
+          user: { id: 999, role: 'editor' },
+          payload: {
+            find: async () => ({ docs: copiedSource }),
+            findByID: async () => ({ email: 'someone@newsroom.test' }),
+          },
+        },
+        data: {
+          title: 'Уряд ухвалив рішення про тарифи',
+          lead: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.',
+          status: 'published',
+          event: null,
+          ai_assisted: false,
+        },
+        originalDoc: afterStep1,
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(APIError)
+    expect(caught.status).toBe(400)
+  })
+})
+
 describe('author/editor hand-off on publish (FACT-236 AC item 7)', () => {
   const editorUser = { id: 42, role: 'editor' }
 

@@ -15,6 +15,32 @@ function idOf(value: unknown): number | undefined {
 }
 
 /**
+ * `ai_assisted` AND `event` are server-owned for any article that already
+ * has a stored `event` (FACT-287, hardening after FACT-236 review, tightened
+ * after a two-step bypass caught on re-review: PATCH 1 `{event:null}` clears
+ * the link while `ai_assisted` stays true, then PATCH 2 `{ai_assisted:false}`
+ * sees an `originalDoc` with no `event` and sails through — the guard must
+ * freeze `event` itself, not just the flag that depends on it). Once a doc
+ * with an `event` has been saved once, only an admin may change either field
+ * through the API — everyone else's attempted change to `ai_assisted` or
+ * `event` is discarded in favour of the stored value. A brand-new doc
+ * (`originalDoc` undefined, e.g. draftFromEvent() via the local API) is
+ * unaffected so the ingestion pipeline can still set them at creation time.
+ */
+function enforceAiAssistedOwnership(
+  req: PayloadRequest,
+  data: Record<string, unknown>,
+  originalDoc?: Record<string, unknown>,
+) {
+  if (!originalDoc) return
+  const hasEvent = idOf(originalDoc.event) != null
+  if (!hasEvent) return
+  if (req.user?.role === 'admin') return
+  data.ai_assisted = originalDoc.ai_assisted ?? false
+  data.event = originalDoc.event
+}
+
+/**
  * Originality/fact-check fields are entirely server-owned (PO review 08.11):
  * recomputed from the event's source-items on every save of an ai_assisted
  * article, never taken from client-submitted data — a PATCH claiming
@@ -234,6 +260,7 @@ export const Articles: CollectionConfig = {
       async ({ req, data, originalDoc }) => {
         data.slug = stableSlug(data.title, data.slug)
 
+        enforceAiAssistedOwnership(req, data, originalDoc)
         await recomputeOriginality(req, data, originalDoc)
 
         const prevStatus = originalDoc?.status
