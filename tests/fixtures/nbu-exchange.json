@@ -1,0 +1,6 @@
+[
+  { "r030": 840, "txt": "Долар США", "rate": 42.1234, "cc": "USD", "exchangedate": "09.11.2026", "special": null },
+  { "r030": 978, "txt": "Євро", "rate": 45.6789, "cc": "EUR", "exchangedate": "09.11.2026", "special": null },
+  { "r030": 985, "txt": "Злотий", "rate": 10.4321, "cc": "PLN", "exchangedate": "09.11.2026", "special": null },
+  { "r030": 826, "txt": "Фунт стерлінгів", "rate": 53.1, "cc": "GBP", "exchangedate": "09.11.2026", "special": null }
+]

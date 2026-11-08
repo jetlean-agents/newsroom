@@ -31,12 +31,46 @@ auto-disables itself (dead-letter) and records the error in `last_error`.
 `type: rss` and `type: press` sources are both polled by the generic poller
 (RSS 2.0 and Atom) — the registry's `press` category is an editorial label
 (corporate newsroom vs. official outlet), not a different transport format;
-every `press` entry checked is itself an RSS/Atom feed. `type: api` entries
-(Prozorro tenders, NBU exchange rates, CKAN datasets) are JSON REST APIs that
-need source-specific parsers, not a generic "news item" shape — tracked as a
-follow-up, not implemented in this stage. `pollSource()` reports `skipped`
-for those so the gap is visible in the worker log rather than silently doing
-nothing.
+every `press` entry checked is itself an RSS/Atom feed.
+
+`type: api` entries are JSON REST APIs with no common "news item" shape, so
+each one gets a source-specific adapter (FACT-195,
+`src/lib/ingest/apiSources/`) keyed by `source_key`, dispatched from
+`pollSource()` instead of `fetchFeed`/`parseFeed`. Implemented so far:
+
+- **`prozorro_tenders_api`** (`prozorro.ts`) — paginates openprocurement's
+  most-recently-modified tenders (`descending=1`), then fetches a bounded
+  number of tender details one at a time with a 1s delay between requests
+  (the registry's "не чаще 1 запрос/сек" note). One `SourceItem` per tender:
+  title, `prozorro.gov.ua/tender/<tenderID>` link, procuring entity + value
+  as the summary.
+- **`nbu_exchange_api`** (`nbu.ts`) — NBUStatService's daily exchange-rate
+  array, folded into a single dated headline item (USD/EUR/PLN) per calendar
+  date; the full rate list goes into the summary. The item's `url` is
+  date-keyed so re-polling the same day dedupes via the generic
+  `source_key::canonical_url` identity hash instead of creating a new row.
+- **`data_gov_ua_ckan`** (`ckan.ts`) — CKAN `package_search` keyed by a
+  Ukrainian-language query (`зареєстровані транспортні засоби`) rather than a
+  fixed dataset id: the MVS vehicle-registrations dataset id wasn't
+  confirmed during FACT-167 registry verification (`package_show` by the
+  guessed id 404'd), and searching survives the dataset being
+  renamed/recreated. Results are filtered to the publishing organization
+  (`МВС`) to drop unrelated municipal datasets that match the same keywords;
+  deliberately left on CKAN's default relevance sort rather than
+  `metadata_modified desc`, which buries the MVS dataset under municipal
+  datasets that get re-saved more often.
+
+A `type: api` source without an adapter yet (currently `eurostat_api`) still
+syncs into the `Sources` collection and gets dispatched like any other
+source, but `pollSource()` reports it `skipped` so the gap is visible in the
+worker log rather than silently doing nothing. Unlike `rss`/`press`, API
+adapters skip the robots.txt check and ETag/If-Modified-Since headers (the
+registry marks all `api` entries `robots_ok: not_applicable` — they're REST
+endpoints, not pages) and do their own rate limiting internally. Each
+adapter's response-shape mapping is covered by
+`tests/unit/ingest-api-sources.test.ts` against fixtures captured from real
+API responses (`tests/fixtures/prozorro-tender.json`,
+`nbu-exchange.json`, `ckan-package-search.json`).
 
 Each poll: sends `If-None-Match`/`If-Modified-Since` (honors 304), retries
 network/5xx errors 3x with exponential backoff, and checks `robots.txt`
