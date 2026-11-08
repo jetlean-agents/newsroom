@@ -62,10 +62,14 @@ services:
 
   seed:
     # One-shot: no Dokploy exec/SSH access to this host, so this is the only way to
-    # run `npm run seed` against the stage DB. Safe to leave in the compose file —
-    # `restart: "no"` means it only runs once per `docker compose up`/redeploy, and
-    # `payload.create`'s unique-email constraint makes a second run fail loudly
-    # (exit 1) rather than duplicate the demo users/articles.
+    # run `npm run seed` against the stage DB — including rotating the admin
+    # password (FACT-170 PO review): re-running this service with a new
+    # SEED_ADMIN_PASSWORD updates the existing admin account to match. Safe to
+    # leave in the compose file long-term — `restart: "no"` means it only runs
+    # once per `docker compose up`/redeploy, and demo content creation past the
+    # users section still fails loudly (exit 1) on a re-run's duplicate
+    # rubrics/articles rather than duplicating them — but that's after the admin
+    # password rotation above it has already applied.
     build: .
     # migrate first (idempotent, race-safe against `app`'s own startup migrate) —
     # seed needs the schema to exist and can start before `app` has migrated it.
@@ -76,6 +80,8 @@ services:
     environment:
       DATABASE_URL: postgres://newsroom:${POSTGRES_PASSWORD}@db:5432/newsroom
       PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
     depends_on:
       db:
         condition: service_healthy

@@ -4,6 +4,8 @@
 |---|---|---|---|
 | `DATABASE_URL` | yes | `postgres://user:pass@host:5432/newsroom` | Postgres connection string. |
 | `PAYLOAD_SECRET` | yes | (random 32+ char string) | Never commit a real value. |
+| `SEED_ADMIN_EMAIL` | prod | `admin@newsroom.test` | Admin account `npm run seed` creates/rotates. Required in production (`NODE_ENV=production`, always true in the Docker image) — seed throws instead of falling back to a guessable default. |
+| `SEED_ADMIN_PASSWORD` | prod | (random) | Never commit a real value. Re-running seed (e.g. the compose `seed` service on a redeploy) rotates the existing admin account to whatever this is currently set to — the way to change the admin password without Dokploy exec/SSH access. |
 | `SITE_URL` | yes | `https://news-sandbox.bigear.uk` | Used for canonical URLs, sitemap, OG, RSS. |
 | `SITE_NAME` | yes | `Newsroom (sandbox)` | Brand name is not finalized yet; keep generic. |
 | `NOINDEX` | yes | `true` | While `true`: `noindex,nofollow` on every page, `X-Robots-Tag: noindex` on sitemap/feed, `Disallow: /` in robots.txt. Must stay `true` for every sandbox deployment. |

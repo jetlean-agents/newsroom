@@ -1,3 +1,4 @@
+import type { Payload } from 'payload'
 import { getPayloadClient } from '@/lib/payload'
 
 /**
@@ -10,24 +11,82 @@ import { getPayloadClient } from '@/lib/payload'
  * can leave a connection idle-in-transaction across calls, deadlocking the
  * next statement. Each call here is already a single all-or-nothing write.
  */
+
+/**
+ * Find-or-create so a redeploy's seed re-run doesn't throw on the (expected)
+ * duplicate-email before it reaches `upsertUser`'s password rotation below —
+ * these two demo accounts (editor/author can publish nothing on their own and
+ * aren't the FACT-170 PO review's concern) keep whatever password they got on
+ * first create.
+ */
+async function findOrCreateUser(
+  payload: Payload,
+  data: { email: string; password: string; name: string; role: string },
+) {
+  const existing = await payload.find({
+    collection: 'users',
+    where: { email: { equals: data.email } },
+    limit: 1,
+  })
+  if (existing.docs.length > 0) return existing.docs[0]
+  return payload.create({ collection: 'users', data, disableTransaction: true })
+}
+
+/**
+ * admin@newsroom.test is the one account with full publish/admin rights, so unlike
+ * editor/author above this rotates the password on every seed run instead of only
+ * setting it once — the FACT-170 PO review flagged the hardcoded `password123` as a
+ * public-admin-with-known-password blocker. In production (always true inside the
+ * Docker image — see Dockerfile) this throws instead of falling back to a known
+ * default if the env vars aren't set, so a misconfigured deploy fails loud rather
+ * than shipping a guessable admin password.
+ */
+async function upsertAdmin(payload: Payload) {
+  const email = process.env.SEED_ADMIN_EMAIL
+  const password = process.env.SEED_ADMIN_PASSWORD
+  if (process.env.NODE_ENV === 'production' && (!email || !password)) {
+    throw new Error('SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must be set to seed/rotate the admin account in production.')
+  }
+  const finalEmail = email || 'admin@newsroom.test'
+  const finalPassword = password || 'password123'
+
+  const existing = await payload.find({
+    collection: 'users',
+    where: { email: { equals: finalEmail } },
+    limit: 1,
+  })
+  if (existing.docs.length > 0) {
+    await payload.update({
+      collection: 'users',
+      id: existing.docs[0].id,
+      data: { password: finalPassword },
+      disableTransaction: true,
+    })
+    return
+  }
+  await payload.create({
+    collection: 'users',
+    data: { email: finalEmail, password: finalPassword, name: 'Тест Адмін (demo user)', role: 'admin' },
+    disableTransaction: true,
+  })
+}
+
 async function main() {
   const payload = await getPayloadClient()
 
-  const editor = await payload.create({
-    collection: 'users',
-    data: { email: 'editor@newsroom.test', password: 'password123', name: 'Тест Редактор (demo user)', role: 'editor' },
-    disableTransaction: true,
+  const editor = await findOrCreateUser(payload, {
+    email: 'editor@newsroom.test',
+    password: 'password123',
+    name: 'Тест Редактор (demo user)',
+    role: 'editor',
   })
-  const author = await payload.create({
-    collection: 'users',
-    data: { email: 'author@newsroom.test', password: 'password123', name: 'Тест Автор (demo user)', role: 'author' },
-    disableTransaction: true,
+  const author = await findOrCreateUser(payload, {
+    email: 'author@newsroom.test',
+    password: 'password123',
+    name: 'Тест Автор (demo user)',
+    role: 'author',
   })
-  await payload.create({
-    collection: 'users',
-    data: { email: 'admin@newsroom.test', password: 'password123', name: 'Тест Адмін (demo user)', role: 'admin' },
-    disableTransaction: true,
-  })
+  await upsertAdmin(payload)
 
   const rubricTitles = ['Суспільство', 'Економіка', 'Технології']
   const rubrics = []
