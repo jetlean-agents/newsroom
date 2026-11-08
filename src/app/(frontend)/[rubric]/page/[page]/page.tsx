@@ -2,18 +2,13 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { getPayloadClient } from '@/lib/payload'
-import { thinPageRobotsMeta } from '@/lib/env'
 import { articlePath, rubricPath, rubricPageNPath, absoluteUrl } from '@/lib/urls'
 import { getRubric, PAGE_SIZE } from '@/lib/rubricHub'
+import { buildPaginationMetadata } from '@/lib/seo'
 import Breadcrumbs from '@/components/Breadcrumbs'
 
 export const dynamic = 'force-dynamic'
 
-/**
- * tech-spec.md §1/§8: page 2+ is self-canonical (never collapsed onto page 1 — a
- * different set of URLs), always `noindex,follow` once the sandbox stops being
- * sitewide-noindex.
- */
 export async function generateMetadata({
   params,
 }: {
@@ -21,14 +16,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { rubric, page } = await params
   const doc = await getRubric(rubric)
-  const pageNum = Number(page)
-  if (!doc || !Number.isInteger(pageNum) || pageNum < 2) return {}
-  const url = absoluteUrl(rubricPageNPath(doc.slug!, pageNum))
-  return {
-    title: `${doc.title} — стор. ${pageNum}`,
-    alternates: { canonical: url },
-    robots: thinPageRobotsMeta(),
-  }
+  if (!doc) return {}
+  return buildPaginationMetadata(doc.slug!, doc.title, Number(page))
 }
 
 export default async function RubricHubPaginatedPage({

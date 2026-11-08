@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
-import { SITE_NAME, SITE_URL, NOINDEX } from '@/lib/env'
+import { SITE_NAME, SITE_URL, SITE_DESCRIPTION, NOINDEX } from '@/lib/env'
 import { articlePath, rubricPath } from '@/lib/urls'
 import { organizationJsonLd } from '@/lib/jsonld'
 import { RUBRIC_SLUGS } from '@/lib/rubricsConfig'
@@ -11,9 +11,17 @@ export const dynamic = 'force-dynamic'
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
+    description: SITE_DESCRIPTION,
     alternates: { canonical: SITE_URL },
     robots: NOINDEX ? 'noindex, nofollow' : 'index, follow',
-    openGraph: { title: SITE_NAME, url: SITE_URL, type: 'website', locale: 'uk_UA', siteName: SITE_NAME },
+    openGraph: {
+      title: SITE_NAME,
+      description: SITE_DESCRIPTION,
+      url: SITE_URL,
+      type: 'website',
+      locale: 'uk_UA',
+      siteName: SITE_NAME,
+    },
   }
 }
 

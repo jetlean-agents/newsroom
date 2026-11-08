@@ -7,6 +7,10 @@ export const SITE_URL = process.env.SITE_URL || 'http://localhost:3000'
  */
 export const INTERNAL_BASE_URL = process.env.INTERNAL_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`
 export const SITE_NAME = process.env.SITE_NAME || 'Newsroom (sandbox)'
+/** Home page `<meta name="description">` / `og:description` fallback (FACT-261 / QA FACT-259). */
+export const SITE_DESCRIPTION =
+  process.env.SITE_DESCRIPTION ||
+  'Незалежний україномовний новинний ресурс: головні події дня, політика, економіка та новини світу.'
 export const NOINDEX = process.env.NOINDEX !== 'false'
 export const ANALYTICS_ENABLED = process.env.ANALYTICS_ENABLED === 'true'
 // docs/seo/tech-spec.md §8: thin tags/subrubrics need >= 30 articles to be worth indexing.

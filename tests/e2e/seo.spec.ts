@@ -71,7 +71,7 @@ test.describe('legacy URL redirects (FACT-194)', () => {
     const [, newPath] = match
     const slug = newPath.split('/').filter(Boolean).pop()
     const res = await request.get(`/articles/${slug}`, { maxRedirects: 0, failOnStatusCode: false })
-    expect([301, 308]).toContain(res.status())
+    expect(res.status()).toBe(301)
     expect(res.headers()['location']).toContain(newPath)
   })
 
@@ -176,7 +176,7 @@ test.describe('visual — mobile + desktop', () => {
     await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true })
 
     await page.locator('.feed-item h2 a').first().click()
-    await page.waitForURL(/\/articles\//)
+    await page.waitForURL(/\/[a-z0-9-]+\/[a-z0-9-]+\/$/)
     // `.lead` only exists on the article template — home also has an <h1>,
     // so asserting on h1 alone let a previous version of this test
     // screenshot the still-home page before the SPA navigation landed.
@@ -191,7 +191,7 @@ test.describe('visual — mobile + desktop', () => {
     await page.screenshot({ path: 'test-results/home-desktop.png', fullPage: true })
 
     await page.locator('.feed-item h2 a').first().click()
-    await page.waitForURL(/\/articles\//)
+    await page.waitForURL(/\/[a-z0-9-]+\/[a-z0-9-]+\/$/)
     await expect(page.locator('.lead')).toBeVisible()
     await page.screenshot({ path: 'test-results/article-desktop.png', fullPage: true })
   })
