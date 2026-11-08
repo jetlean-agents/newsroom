@@ -4,10 +4,10 @@ import { maxOverlap } from '@/lib/ai/originality'
 import { factCheckFlags } from '@/lib/ai/factCheck'
 import { prioritizeEvents } from '@/lib/review/priority'
 import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY } from '@/lib/env'
+import { SYSTEM_AUTHOR_EMAIL } from '@/lib/ingest/systemAuthor'
 import type { Source, Rubric, Tag } from '@/payload-types'
 
 const DEFAULT_RUBRIC_SLUG = 'bez-rubryky'
-const SYSTEM_AUTHOR_EMAIL = 'ingest-system@sandbox.local'
 
 async function getOrCreateFallbackRubric() {
   const payload = await getPayloadClient()

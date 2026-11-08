@@ -127,28 +127,45 @@ never a scraped full article body.
   until then this throws a clear per-event error (skipped, not fatal to the
   job) rather than silently calling out with no key.
 
-**Anti-copypaste** (`src/lib/ai/originality.ts`): for AI-generated drafts
-(`mock`/`anthropic`), `maxOverlap()` computes the word-shingle (5-word)
-overlap between the full draft text and each source's title+summary — the
-overlap against the single most-copied-from source, not an averaged-down
-figure. Stored as `Article.originality_overlap` (visible in the admin list).
+**Anti-copypaste** (`src/lib/ai/originality.ts` + `recomputeOriginality()` in
+`src/collections/Articles.ts`): for `ai_assisted` articles, every save
+re-fetches the event's SourceItems and recomputes `originality_overlap`
+(word-shingle, 5-word, overlap against the single most-copied-from source —
+`maxOverlap()`) and `fact_flags` from the *current* title/lead/body — not
+once at draft time. This is deliberate and load-bearing, not just an
+optimization: it's what lets a rewrite actually lift the block (originally it
+was computed once in `draftFromEvent()` and then frozen forever, so no amount
+of editing could get a flagged draft published — fixed in PO review). These
+three fields are also **entirely server-owned**: `recomputeOriginality()`
+overwrites them unconditionally and ignores whatever the request body sent
+for them, so a client can't PATCH `originality_blocked: false` to skip the
+check (`tests/unit/articles-transition-errors.test.ts` covers this directly).
 Above `ORIGINALITY_MAX_OVERLAP` (default 0.5), `originality_blocked: true` is
-set and `Articles`' publish-transition guard (`src/collections/Articles.ts`)
-rejects `in_review -> published` with a 400 until the draft is rewritten —
-the one AI-pipeline check that actually blocks publication.
+set and `Articles`' publish-transition guard rejects `in_review -> published`
+with a 400 until the draft is rewritten enough to drop back under the
+threshold — the one AI-pipeline check that actually blocks publication.
+Non-`ai_assisted` articles always get `originality_overlap: null`,
+`originality_blocked: false` — the check never runs for them regardless of
+what's in the request.
 
-**Fact-check assist** (`src/lib/ai/factCheck.ts`): for AI-generated drafts,
+**Fact-check assist** (`src/lib/ai/factCheck.ts`): for `ai_assisted` articles,
 `factCheckFlags()` flags numbers, dates and capitalized-name sequences in the
-draft that don't appear in any source text — a "перевірити" pointer for the
-reviewing editor, stored as `Article.fact_flags[]`. Heuristic, non-blocking:
-it never stops a publish by itself.
+current draft text that don't appear in any source text — a "перевірити"
+pointer for the reviewing editor, stored as `Article.fact_flags[]` (same
+recompute-on-every-save, server-owned treatment as the overlap check above).
+Heuristic, non-blocking: it never stops a publish by itself.
 
 - `sources[]` is populated from every clustered item (title/url/publisher/accessed_at).
 - `ai_assisted`/`ai_disclosure` are set together: `ai_disclosure` carries the
   reader-facing editorial-policy line whenever a draft came from `mock`/
-  `anthropic`. `author` stays the system ingest account until a real editor
-  claims the draft and rewrites/verifies it — that hand-off, not this job, is
-  what AC item 7's "author = real editor" means in practice.
+  `anthropic`, and renders on the article page right under the headline
+  (`src/app/(frontend)/[rubric]/[slug]/page.tsx`).
+- `author` is the system ingest account (`src/lib/ingest/systemAuthor.ts`)
+  until the actual `in_review -> published` transition: `Articles.ts` then
+  sets `editor` to the publishing user and, if `author` is still the system
+  placeholder, replaces it with that same user — AC item 7's "author = real
+  editor who verified it" is enforced at publish time, not left as a
+  convention an editor has to remember to apply by hand.
 - The event flips to `drafted` and links to the created article.
 
 From there the pipeline is the stage-1 Articles state machine: an author

@@ -331,15 +331,15 @@ export interface Article {
    */
   ai_disclosure?: string | null;
   /**
-   * Shingle overlap (0-1) of the draft against its most-copied-from source. Set by draftFromEvent(); see src/lib/ai/originality.ts.
+   * Shingle overlap (0-1) of the draft against its most-copied-from source. Server-owned: recomputed on every save of an ai_assisted article (src/collections/Articles.ts recomputeOriginality, src/lib/ai/originality.ts) — any client-submitted value for this field is ignored.
    */
   originality_overlap?: number | null;
   /**
-   * True when originality_overlap > ORIGINALITY_MAX_OVERLAP — blocks the draft -> published transition until rewritten.
+   * True when originality_overlap > ORIGINALITY_MAX_OVERLAP — blocks the draft -> published transition until rewritten. Server-owned, see originality_overlap.
    */
   originality_blocked?: boolean | null;
   /**
-   * Numbers/dates/names in the draft not found in any source — "перевірити" pointers for the reviewing editor, non-blocking.
+   * Numbers/dates/names in the draft not found in any source — "перевірити" pointers for the reviewing editor, non-blocking. Server-owned, see originality_overlap.
    */
   fact_flags?:
     | {

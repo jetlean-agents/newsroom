@@ -2,7 +2,68 @@ import type { CollectionConfig, PayloadRequest } from 'payload'
 import { APIError } from 'payload'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { stableSlug } from '../lib/slug'
-import type { Tag } from '../payload-types'
+import { plainTextFromBody } from '../lib/richText'
+import { maxOverlap } from '../lib/ai/originality'
+import { factCheckFlags } from '../lib/ai/factCheck'
+import { ORIGINALITY_MAX_OVERLAP } from '../lib/env'
+import { SYSTEM_AUTHOR_EMAIL } from '../lib/ingest/systemAuthor'
+import type { Article, Tag, SourceItem } from '../payload-types'
+
+function idOf(value: unknown): number | undefined {
+  if (value == null) return undefined
+  return typeof value === 'object' ? (value as { id: number }).id : (value as number)
+}
+
+/**
+ * Originality/fact-check fields are entirely server-owned (PO review 08.11):
+ * recomputed from the event's source-items on every save of an ai_assisted
+ * article, never taken from client-submitted data — a PATCH claiming
+ * `originality_blocked: false` has no effect, this overwrites it before
+ * assertValidTransition ever sees it. Also fixes the original "block can
+ * never be lifted" bug: editing lead/title/body now re-runs the check instead
+ * of freezing originality_overlap at whatever draftFromEvent() first computed.
+ */
+async function recomputeOriginality(
+  req: PayloadRequest,
+  data: Record<string, unknown>,
+  originalDoc?: Record<string, unknown>,
+) {
+  const aiAssisted = data.ai_assisted ?? originalDoc?.ai_assisted
+  if (!aiAssisted) {
+    data.originality_overlap = null
+    data.originality_blocked = false
+    data.fact_flags = []
+    return
+  }
+
+  const eventId = idOf(data.event ?? originalDoc?.event)
+  if (!eventId) {
+    // No event to recompute against (e.g. an article manually flagged
+    // ai_assisted with no event) — keep whatever is already stored rather
+    // than trust unverifiable client input.
+    data.originality_overlap = originalDoc?.originality_overlap ?? null
+    data.originality_blocked = originalDoc?.originality_blocked ?? false
+    data.fact_flags = originalDoc?.fact_flags ?? []
+    return
+  }
+
+  const members = await req.payload.find({
+    collection: 'source-items',
+    where: { event: { equals: eventId } },
+    limit: 50,
+  })
+  const sourceTexts = members.docs.map((item: SourceItem) => `${item.title} ${item.summary ?? ''}`)
+
+  const title = data.title ?? originalDoc?.title ?? ''
+  const lead = data.lead ?? originalDoc?.lead ?? ''
+  const body = (data.body ?? originalDoc?.body) as Article['body'] | undefined
+  const bodyText = [title, lead, plainTextFromBody(body)].filter(Boolean).join('\n')
+
+  const overlap = maxOverlap(bodyText, sourceTexts)
+  data.originality_overlap = overlap
+  data.originality_blocked = overlap > ORIGINALITY_MAX_OVERLAP
+  data.fact_flags = factCheckFlags(bodyText, sourceTexts)
+}
 
 /**
  * Publication state machine: draft -> in_review -> published -> unpublished.
@@ -135,19 +196,19 @@ export const Articles: CollectionConfig = {
       type: 'number',
       admin: {
         readOnly: true,
-        description: 'Shingle overlap (0-1) of the draft against its most-copied-from source. Set by draftFromEvent(); see src/lib/ai/originality.ts.',
+        description: 'Shingle overlap (0-1) of the draft against its most-copied-from source. Server-owned: recomputed on every save of an ai_assisted article (src/collections/Articles.ts recomputeOriginality, src/lib/ai/originality.ts) — any client-submitted value for this field is ignored.',
       },
     },
     {
       name: 'originality_blocked',
       type: 'checkbox',
       defaultValue: false,
-      admin: { readOnly: true, description: 'True when originality_overlap > ORIGINALITY_MAX_OVERLAP — blocks the draft -> published transition until rewritten.' },
+      admin: { readOnly: true, description: 'True when originality_overlap > ORIGINALITY_MAX_OVERLAP — blocks the draft -> published transition until rewritten. Server-owned, see originality_overlap.' },
     },
     {
       name: 'fact_flags',
       type: 'array',
-      admin: { readOnly: true, description: 'Numbers/dates/names in the draft not found in any source — "перевірити" pointers for the reviewing editor, non-blocking.' },
+      admin: { readOnly: true, description: 'Numbers/dates/names in the draft not found in any source — "перевірити" pointers for the reviewing editor, non-blocking. Server-owned, see originality_overlap.' },
       fields: [
         { name: 'value', type: 'text', required: true },
         { name: 'kind', type: 'select', required: true, options: ['number', 'date', 'name'] },
@@ -170,15 +231,36 @@ export const Articles: CollectionConfig = {
   ],
   hooks: {
     beforeChange: [
-      ({ req, data, originalDoc }) => {
+      async ({ req, data, originalDoc }) => {
         data.slug = stableSlug(data.title, data.slug)
 
+        await recomputeOriginality(req, data, originalDoc)
+
         const prevStatus = originalDoc?.status
-        assertValidTransition(req, prevStatus, data.status, data.originality_blocked ?? originalDoc?.originality_blocked)
+        assertValidTransition(req, prevStatus, data.status, data.originality_blocked)
 
         if (data.status === 'published' && prevStatus !== 'published') {
           data.published_at = data.published_at || new Date().toISOString()
           data.updated_at = data.updated_at || data.published_at
+        }
+
+        // On the actual in_review -> published transition, record who verified
+        // the material: `editor` is always the publishing user. If `author` is
+        // still the ingest placeholder (an AI draft nobody has claimed yet),
+        // swap it for that same real person too — a draft must never ship
+        // with a system byline (AC item 7: "author = real editor who verified").
+        if (data.status === 'published' && prevStatus === 'in_review' && req.user) {
+          data.editor = req.user.id
+          const author = data.author ?? originalDoc?.author
+          const authorEmail =
+            typeof author === 'object' && author
+              ? author.email
+              : author
+                ? (await req.payload.findByID({ collection: 'users', id: author })).email
+                : undefined
+          if (authorEmail === SYSTEM_AUTHOR_EMAIL) {
+            data.author = req.user.id
+          }
         }
 
         // Treat any field change other than status/editor bookkeeping as substantive.

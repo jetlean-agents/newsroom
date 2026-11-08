@@ -2,6 +2,7 @@ import { headers as getHeaders } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getPayloadClient } from '@/lib/payload'
 import { prioritizeReviewQueue } from '@/lib/review/priority'
+import { plainTextFromBody } from '@/lib/richText'
 import type { Article, Event, Rubric } from '@/payload-types'
 import ReviewQueueClient, { type QueueItem } from './ReviewQueueClient'
 
@@ -20,18 +21,6 @@ function rubricSlug(article: Article): string | null {
 function rubricTitle(article: Article): string {
   const rubric = article.rubric as Rubric | number | null | undefined
   return typeof rubric === 'object' && rubric ? rubric.title : 'Без рубрики'
-}
-
-function plainTextFromBody(body: Article['body']): string {
-  const lines: string[] = []
-  const walk = (node: unknown) => {
-    if (!node || typeof node !== 'object') return
-    const n = node as { type?: string; text?: string; children?: unknown[] }
-    if (n.type === 'text' && n.text) lines.push(n.text)
-    n.children?.forEach(walk)
-  }
-  walk(body?.root)
-  return lines.join('\n\n')
 }
 
 /**
