@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { robotsMeta, thinPageRobotsMeta, INTERNAL_BASE_URL } from '@/lib/env'
 import { RESERVED_TOP_LEVEL_SEGMENTS } from '@/lib/rubricsConfig'
+import { articlePath, rubricPath } from '@/lib/urls'
 
 export const config = {
   // Everything except /api and Next's own internals — content pages + /admin (sandbox
@@ -31,8 +32,48 @@ function isThinPagePath(pathname: string): boolean {
  * the thin-page variant.
  */
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
+  const { pathname, search } = req.nextUrl
   const segments = pathname.split('/').filter(Boolean)
+
+  // Legacy stage-1 flat URLs. `next.config.mjs` sets `skipTrailingSlashRedirect: true` so
+  // these can redirect straight to the final canonical URL with a real 301 (FACT-261 / QA
+  // FACT-259) — Next's own trailing-slash normalization is hardcoded to 308 and (being baked
+  // into the build's redirect table) runs *before* Middleware, so it would otherwise answer
+  // the bare path itself and our 301 below would never be the response the client sees.
+  const legacyRubricSlug = segments.length === 2 && segments[0] === 'rubrics' ? segments[1] : null
+  if (legacyRubricSlug) {
+    return NextResponse.redirect(new URL(rubricPath(legacyRubricSlug), req.url), 301)
+  }
+  const legacyArticleSlug = segments.length === 2 && segments[0] === 'articles' ? segments[1] : null
+  if (legacyArticleSlug) {
+    const statusUrl = new URL(`/api/articles/${legacyArticleSlug}/status/`, INTERNAL_BASE_URL)
+    try {
+      const res = await fetch(statusUrl)
+      const { rubricSlug } = await res.json()
+      if (rubricSlug) {
+        return NextResponse.redirect(new URL(articlePath(rubricSlug, legacyArticleSlug), req.url), 301)
+      }
+    } catch (err) {
+      console.error(`[middleware] legacy article redirect lookup failed for ${statusUrl}:`, err)
+    }
+    // No rubric (never existed, or data issue) — fall through to the route handler's 404.
+  }
+
+  // With Next's own trailing-slash redirect off, replicate it ourselves for every other path
+  // (same rule it used: a path whose last segment has no dot gets a trailing slash added; one
+  // ending in "/" whose last segment has a dot — e.g. a stray "/robots.txt/" — gets it
+  // stripped) so `trailingSlash: true` elsewhere in the site keeps working exactly as before,
+  // just still at 308 since those aren't this issue's legacy URLs.
+  if (!pathname.startsWith('/.well-known')) {
+    const lastSegment = segments[segments.length - 1] || ''
+    const looksLikeFile = lastSegment.includes('.')
+    if (pathname !== '/' && pathname.endsWith('/') && looksLikeFile) {
+      return NextResponse.redirect(new URL(pathname.slice(0, -1) + search, req.url), 308)
+    }
+    if (!pathname.endsWith('/') && !looksLikeFile) {
+      return NextResponse.redirect(new URL(`${pathname}/${search}`, req.url), 308)
+    }
+  }
 
   // Only a genuine `/{rubric}/{slug}` article URL (2 segments, first one not a reserved
   // top-level route like /tag, /search, /admin) can be an unpublished-article 410 case.
