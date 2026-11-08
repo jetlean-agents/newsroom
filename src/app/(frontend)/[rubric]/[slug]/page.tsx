@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { getPayloadClient } from '@/lib/payload'
-import { SITE_URL, SITE_NAME, NOINDEX } from '@/lib/env'
+import { SITE_NAME, NOINDEX } from '@/lib/env'
+import { articlePath, absoluteUrl } from '@/lib/urls'
+import { articleJsonLd, DEFAULT_OG_IMAGE_URL } from '@/lib/jsonld'
+import Breadcrumbs from '@/components/Breadcrumbs'
 import { RichText } from '@payloadcms/richtext-lexical/react'
 import ScrollTracker from './ScrollTracker'
 import type { Article, Tag } from '@/payload-types'
@@ -20,11 +23,16 @@ async function getArticle(slug: string) {
   return result.docs[0] || null
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ rubric: string; slug: string }>
+}): Promise<Metadata> {
   const { slug } = await params
   const article = await getArticle(slug)
   if (!article) return {}
-  const url = `${SITE_URL}/articles/${article.slug}`
+  const rubricSlug = (typeof article.rubric === 'object' ? article.rubric.slug : '') || ''
+  const url = absoluteUrl(articlePath(rubricSlug, article.slug!))
   return {
     title: article.title,
     description: article.lead,
@@ -36,14 +44,38 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       url,
       siteName: SITE_NAME,
       type: 'article',
+      locale: 'uk_UA',
+      images: [DEFAULT_OG_IMAGE_URL],
+      publishedTime: article.published_at ?? undefined,
+      modifiedTime: article.updated_at ?? undefined,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: article.title,
+      description: article.lead,
+      images: [DEFAULT_OG_IMAGE_URL],
     },
   }
 }
 
-export default async function ArticlePage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
+export default async function ArticlePage({
+  params,
+}: {
+  params: Promise<{ rubric: string; slug: string }>
+}) {
+  const { rubric, slug } = await params
   const article = await getArticle(slug)
   if (!article) notFound()
+
+  const rubricSlug = typeof article.rubric === 'object' ? article.rubric.slug : null
+  const rubricTitle = typeof article.rubric === 'object' ? article.rubric.title : ''
+  if (!rubricSlug) notFound()
+  // Canonical rubric for this article differs from the URL segment it was requested
+  // under — redirect to the canonical `/{rubric}/{slug}/` rather than serving duplicate
+  // content under two URLs (tech-spec.md §1: self-canonical, one URL per article).
+  if (rubric !== rubricSlug) {
+    redirect(articlePath(rubricSlug, slug))
+  }
 
   const payload = await getPayloadClient()
   const rubricId = typeof article.rubric === 'object' ? article.rubric.id : article.rubric
@@ -66,6 +98,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
       },
       sort: '-published_at',
       limit: 4,
+      depth: 1,
     }),
     payload.find({
       collection: 'articles',
@@ -77,32 +110,27 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
       },
       sort: '-published_at',
       limit: 1,
+      depth: 1,
     }),
   ])
 
   const nextArticle = next.docs[0]
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'NewsArticle',
-    headline: article.title,
-    description: article.lead,
-    datePublished: article.published_at,
-    dateModified: article.updated_at || article.published_at,
-    author: typeof article.author === 'object' ? { '@type': 'Person', name: article.author.name } : undefined,
-    url: `${SITE_URL}/articles/${article.slug}`,
-  }
+  const nextRubricSlug = typeof nextArticle?.rubric === 'object' ? nextArticle.rubric.slug : null
+  const canonicalUrl = absoluteUrl(articlePath(rubricSlug, article.slug!))
+  const jsonLd = articleJsonLd(article, canonicalUrl)
 
   return (
     <article>
       <ScrollTracker articleId={String(article.id)} nextArticleSlug={nextArticle?.slug} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      <nav className="meta">
-        <Link href="/">Головна</Link> /{' '}
-        {typeof article.rubric === 'object' ? (
-          <Link href={`/rubrics/${article.rubric.slug}`}>{article.rubric.title}</Link>
-        ) : null}{' '}/ {article.title}
-      </nav>
+      <Breadcrumbs
+        items={[
+          { name: 'Головна', url: absoluteUrl('/') },
+          { name: rubricTitle, url: absoluteUrl(`/${rubricSlug}/`) },
+          { name: article.title, url: canonicalUrl },
+        ]}
+      />
 
       <header className="article-header">
         <h1>{article.title}</h1>
@@ -157,18 +185,23 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
       {related.docs.length ? (
         <section>
-          <h2>Пов&apos;язані матеріали</h2>
+          <h2>Ще в рубриці</h2>
           <ul>
-            {related.docs.map((a) => (
-              <li key={a.id}><Link href={`/articles/${a.slug}`}>{a.title}</Link></li>
-            ))}
+            {related.docs.map((a) => {
+              const aRubricSlug = typeof a.rubric === 'object' ? a.rubric.slug : rubricSlug
+              return (
+                <li key={a.id}><Link href={articlePath(aRubricSlug!, a.slug!)}>{a.title}</Link></li>
+              )
+            })}
           </ul>
         </section>
       ) : null}
 
-      {nextArticle ? (
+      {nextArticle && nextRubricSlug ? (
         <p>
-          <Link href={`/articles/${nextArticle.slug}`} id="next-article-link">Наступна стаття: {nextArticle.title} →</Link>
+          <Link href={articlePath(nextRubricSlug, nextArticle.slug!)} id="next-article-link">
+            Наступна стаття: {nextArticle.title} →
+          </Link>
         </p>
       ) : null}
     </article>

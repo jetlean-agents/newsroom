@@ -19,10 +19,17 @@ main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
 .rubric-nav { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .rubric-nav a { color: #555; text-decoration: none; padding: 0.25rem 0.75rem; border: 1px solid #ddd; border-radius: 999px; }
 .feed-item { padding: 1rem 0; border-bottom: 1px solid #eee; }
-.feed-item h2 { margin: 0.25rem 0; font-size: 1.15rem; }
+.feed-item h2, .feed-item h3 { margin: 0.25rem 0; font-size: 1.15rem; }
 .feed-item a { color: #1a1a1a; text-decoration: none; }
-.meta { color: #777; font-size: 0.85rem; }
+/* #777/#999 on #fff/#fafafa failed Lighthouse color-contrast (< 4.5:1 for small text,
+   docs/seo/acceptance-status.md) — #5c5c5c on #fff is ~7:1, #595959 on #fafafa similar. */
+.meta { color: #5c5c5c; font-size: 0.85rem; }
 .demo-badge { display: inline-block; background: #ffe08a; color: #6b4e00; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 4px; margin-left: 0.5rem; }
 .article-header h1 { margin-bottom: 0.25rem; }
 .sources { background: #f3f3f3; padding: 1rem; border-radius: 8px; margin-top: 2rem; }
-.site-footer { text-align: center; padding: 2rem; color: #999; font-size: 0.85rem; }
+.site-footer { text-align: center; padding: 2rem; color: #595959; font-size: 0.85rem; }
+.breadcrumbs { color: #5c5c5c; font-size: 0.85rem; margin-bottom: 1rem; }
+.breadcrumbs a { color: #5c5c5c; }
+.breadcrumbs-sep { padding: 0 0.25rem; }
+.featured-block, .evergreen-block, .rubric-block { margin: 1.5rem 0; }
+.pagination { display: flex; justify-content: space-between; margin-top: 1.5rem; }

@@ -6,6 +6,10 @@ import './globals.css'
 export const metadata: Metadata = {
   title: { default: SITE_NAME, template: `%s — ${SITE_NAME}` },
   robots: robotsMeta(),
+  // Hreflang not needed (uk-only sandbox, epic FACT-164 decision 08.11) — just the
+  // document language + OpenGraph locale (tech-spec.md / this issue's scope).
+  openGraph: { locale: 'uk_UA', siteName: SITE_NAME },
+  icons: { icon: '/favicon.ico' },
 }
 
 export default function FrontendLayout({ children }: { children: React.ReactNode }) {
