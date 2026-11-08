@@ -13,46 +13,28 @@ import { getPayloadClient } from '@/lib/payload'
  */
 
 /**
- * Find-or-create so a redeploy's seed re-run doesn't throw on the (expected)
- * duplicate-email before it reaches `upsertUser`'s password rotation below —
- * these two demo accounts (editor/author can publish nothing on their own and
- * aren't the FACT-170 PO review's concern) keep whatever password they got on
- * first create.
+ * Every demo account rotates its password on every seed run rather than only
+ * setting it once — FACT-170 PO review: `editor`/`author` can publish/unpublish
+ * articles and edit rubrics/tags/pages just like `admin` (`src/collections/
+ * Articles.ts`'s publish-transition check allows `editor` too), so a known
+ * hardcoded password on any of them is the same public-sandbox-with-a-known-
+ * password risk the first review flagged for `admin` alone. In production
+ * (always true inside the Docker image — see Dockerfile) this throws instead
+ * of falling back to a known default if the required env var isn't set, so a
+ * misconfigured deploy fails loud rather than shipping a guessable password.
  */
-async function findOrCreateUser(
+async function upsertRotatingUser(
   payload: Payload,
-  data: { email: string; password: string; name: string; role: string },
+  { email, password, name, role, envVarName }: { email: string; password: string | undefined; name: string; role: string; envVarName: string },
 ) {
-  const existing = await payload.find({
-    collection: 'users',
-    where: { email: { equals: data.email } },
-    limit: 1,
-  })
-  if (existing.docs.length > 0) return existing.docs[0]
-  return payload.create({ collection: 'users', data, disableTransaction: true })
-}
-
-/**
- * admin@newsroom.test is the one account with full publish/admin rights, so unlike
- * editor/author above this rotates the password on every seed run instead of only
- * setting it once — the FACT-170 PO review flagged the hardcoded `password123` as a
- * public-admin-with-known-password blocker. In production (always true inside the
- * Docker image — see Dockerfile) this throws instead of falling back to a known
- * default if the env vars aren't set, so a misconfigured deploy fails loud rather
- * than shipping a guessable admin password.
- */
-async function upsertAdmin(payload: Payload) {
-  const email = process.env.SEED_ADMIN_EMAIL
-  const password = process.env.SEED_ADMIN_PASSWORD
-  if (process.env.NODE_ENV === 'production' && (!email || !password)) {
-    throw new Error('SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must be set to seed/rotate the admin account in production.')
+  if (process.env.NODE_ENV === 'production' && !password) {
+    throw new Error(`${envVarName} must be set to seed/rotate the ${role} account (${email}) in production.`)
   }
-  const finalEmail = email || 'admin@newsroom.test'
   const finalPassword = password || 'password123'
 
   const existing = await payload.find({
     collection: 'users',
-    where: { email: { equals: finalEmail } },
+    where: { email: { equals: email } },
     limit: 1,
   })
   if (existing.docs.length > 0) {
@@ -62,11 +44,11 @@ async function upsertAdmin(payload: Payload) {
       data: { password: finalPassword },
       disableTransaction: true,
     })
-    return
+    return existing.docs[0]
   }
-  await payload.create({
+  return payload.create({
     collection: 'users',
-    data: { email: finalEmail, password: finalPassword, name: 'Тест Адмін (demo user)', role: 'admin' },
+    data: { email, password: finalPassword, name, role },
     disableTransaction: true,
   })
 }
@@ -74,19 +56,27 @@ async function upsertAdmin(payload: Payload) {
 async function main() {
   const payload = await getPayloadClient()
 
-  const editor = await findOrCreateUser(payload, {
+  const editor = await upsertRotatingUser(payload, {
     email: 'editor@newsroom.test',
-    password: 'password123',
+    password: process.env.SEED_DEMO_PASSWORD,
     name: 'Тест Редактор (demo user)',
     role: 'editor',
+    envVarName: 'SEED_DEMO_PASSWORD',
   })
-  const author = await findOrCreateUser(payload, {
+  const author = await upsertRotatingUser(payload, {
     email: 'author@newsroom.test',
-    password: 'password123',
+    password: process.env.SEED_DEMO_PASSWORD,
     name: 'Тест Автор (demo user)',
     role: 'author',
+    envVarName: 'SEED_DEMO_PASSWORD',
   })
-  await upsertAdmin(payload)
+  await upsertRotatingUser(payload, {
+    email: process.env.SEED_ADMIN_EMAIL || 'admin@newsroom.test',
+    password: process.env.SEED_ADMIN_PASSWORD,
+    name: 'Тест Адмін (demo user)',
+    role: 'admin',
+    envVarName: 'SEED_ADMIN_PASSWORD',
+  })
 
   const rubricTitles = ['Суспільство', 'Економіка', 'Технології']
   const rubrics = []

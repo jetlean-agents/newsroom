@@ -77,21 +77,23 @@ migrate && npm start`) — no separate migration step. Seeding runs via a `seed`
 `docker-compose.yml` (`restart: "no"`, `npm run migrate && npm run seed`) — the only way to run
 a one-off command against the stage DB, since there is no Dokploy exec/SSH access to this host.
 
-It creates 3 demo rubrics/articles/page templates and two low-privilege demo accounts
-(`editor@newsroom.test`/`author@newsroom.test`, password `password123`, hardcoded in
-`src/seed/index.ts` — not a secret, sandbox-only, never used in prod; find-or-create, so a
-re-run leaves them alone). The **admin** account is different: email/password come from
-`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` (Dokploy env, never committed), required in
-production or seed throws rather than falling back to a guessable default (FACT-170 PO
-review — a public admin login with a password sitting in the repo was a real sandbox
-blocker). Re-running the `seed` service **rotates** the existing admin account to whatever
-`SEED_ADMIN_PASSWORD` currently is — that's also how to change the admin password on stage:
-set a new value in Dokploy env, redeploy the `newsroom` compose app.
+It creates 3 demo rubrics/articles/page templates and three demo accounts
+(`admin@newsroom.test`, `editor@newsroom.test`, `author@newsroom.test` — emails hardcoded in
+`src/seed/index.ts`, not secrets). **All three accounts' passwords come from Dokploy env,
+never committed**: `SEED_ADMIN_PASSWORD` for admin, `SEED_DEMO_PASSWORD` (shared) for
+editor/author. Required in production or seed throws rather than falling back to a
+guessable default — FACT-170 PO review flagged this twice: first for admin, then again for
+editor, since `src/collections/Articles.ts`'s publish-transition check allows `editor` to
+publish/unpublish just like `admin`, so a hardcoded editor password was the same
+public-sandbox-with-a-known-password risk. Re-running the `seed` service **rotates** all
+three existing accounts to whatever those env vars currently are — that's also how to
+change any of these passwords on stage: set a new value in Dokploy env, redeploy the
+`newsroom` compose app.
 
 Safe to leave `seed` in the compose file long-term: it only runs once per `docker compose
 up`/redeploy, and content creation past the users section still fails loudly (exit 1) on a
-re-run's duplicate rubrics/articles — but that's after the admin password rotation above it
-has already applied, so the one-shot container showing "exited 1" on a second run is expected,
+re-run's duplicate rubrics/articles — but that's after the password rotations above it have
+already applied, so the one-shot container showing "exited 1" on a second run is expected,
 not a sign the rotation failed.
 
 Locally on Contabo, `docker compose up --build` still works for a quick prod-like smoke test
