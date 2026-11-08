@@ -34,13 +34,13 @@
 #   last_verified    — дата проверки живым запросом в ЭТОМ прогоне: 2026-11-08 (curl -A "<Chrome UA>" -L -m 15, с Contabo)
 #   notes            — HTTP-код, content-type, количество items, оговорки, эскалации
 #
-# Все 84 источника (71 verified + 13 candidate) в этом прогоне проверены живым curl с этой машины
+# Все 85 источников (72 verified + 13 candidate) в этом прогоне проверены живым curl с этой машины
 # (Chrome/131 UA, -L -m 15) 2026-11-08. У verified дополнительно проверено количество <item>/<entry> > 0
 # (несколько фидов отдавали HTTP 200 с валидным content-type, но 0 items — такие остались в candidate
 # или не включены вовсе, см. notes конкретных источников).
 
 sources:
-  # ===================== VERIFIED (71, живой фид с реальными items, curl + Chrome UA, Contabo) =====================
+  # ===================== VERIFIED (72, живой фид с реальными items, curl + Chrome UA, Contabo) =====================
 
   - id: rada_news_uk
     name: "Верховна Рада України — стрічка новин"
@@ -1011,6 +1011,25 @@ sources:
     last_verified: "2026-11-08"
     notes: "curl: HTTP 200, Content-Type text/xml;charset=UTF-8, валидный RSS, 20 items в этом прогоне."
 
+  - id: upl_ua_rss
+    name: "Українська Прем'єр-Ліга (УПЛ) — новини"
+    type: rss
+    status: verified
+    url: "https://upl.ua/rss"
+    language: uk
+    usage: facts
+    rubrics: [sport]
+    region: natsional
+    topics: [sport]
+    terms_url: "https://upl.ua"
+    reuse_terms: "Официальный организатор чемпионата Украины по футболу: можно цитировать официальные решения лиги (календарь, переносы матчей, санкции, результаты) с обязательной атрибуцией и ссылкой на upl.ua."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/20-30 мин"
+    poll_interval: "20m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-08"
+    notes: "curl: HTTP 200, Content-Type text/xml;charset=utf-8, валидный RSS, 10 items в этом прогоне, даты свежие (07.11.2026: перенос матчу «Харків» — «Карпати», прев'ю туру). Добавлено по запросу PO как facts-джерело для рубрики sport — worldathletics.org/rss перевірений, але не додано (останні записи 2022 року, не актуальний канал)."
+
   - id: kharkiv_057_rss
     name: "057.ua — новини Харкова"
     type: rss
@@ -1641,7 +1660,7 @@ sources:
     notes: "curl: HTTP 200, Content-Type application/xml;charset=UTF-8. Терминология терминов использования на сайте не найдена в этом прогоне — эскалация перед включением."
 
 sources_summary:
-  verified_count: 71
+  verified_count: 72
   candidate_count: 13
   minimum_required: 70
   rubric_coverage:
@@ -1654,18 +1673,18 @@ sources_summary:
     suspilstvo: {signal: 7, facts: 3, total: 10}
     tekhnolohii: {signal: 1, facts: 11, total: 12}
     zdorovia: {signal: 4, facts: 1, total: 5}
-    sport: {signal: 4, facts: 0, total: 4}  # GAP: нет facts-источника, см. notes ниже
+    sport: {signal: 4, facts: 1, total: 5}
     kultura: {signal: 3, facts: 1, total: 4}
     rehiony: {signal: 22, facts: 1, total: 23}
   note: >
-    71 источник со статусом verified прошли проверку живым запросом в этом прогоне
+    72 источника со статусом verified прошли проверку живым запросом в этом прогоне
     (curl -A "<Chrome/131 UA>" -L -m 15, с Contabo, НЕ WebFetch) 2026-11-08 — HTTP 200,
     корректный формат (RSS/Atom/JSON) И реальные items (>0) в канале. Все 12 рубрик покрыты
-    минимум 4 verified-источниками. Эскалация: рубрика sport (Спорт) не имеет подтверждённого
-    facts-источника — официальные фиды Мінмолодьспорту (mms.gov.ua), НОК України (noc-ukr.org),
-    УАФ (uaf.ua), FIFA/UEFA/IOC в этом прогоне не отдали валидный RSS с items (404/антибот/
-    пустой канал) — нужно либо решение PO принять только signal-покрытие для sport, либо
-    эскалация Roman на платный агрегатор спортивных результатов (НЕ делать без решения).
+    минимум 4 verified-источниками, у всех есть хотя бы 1 facts-источник. Рубрика sport закрыта
+    facts-источником upl.ua (Українська Прем'єр-Ліга, официальный организатор чемпионата) —
+    добавлено по решению PO 2026-11-08; worldathletics.org/rss проверен и НЕ добавлен (живой
+    фид, но последние записи 2022 года — не актуальный канал); платный агрегатор спортивных
+    результатов по решению PO НЕ подключаем.
     TASS (tass.com) технически отдал 200, но не включён ни в verified, ни в candidates:
     российское государственное пропагандистское издание — неприемлемо для украинской
     аудитории по редакционной политике, а не из-за технической проверки.
