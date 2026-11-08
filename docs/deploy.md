@@ -73,10 +73,14 @@ media is publicly readable without signed URLs — matches the `media` collectio
 `access.read: () => true`. Re-running it on every deploy is safe (idempotent).
 
 `app`'s migration runs automatically on every container start (`Dockerfile`'s `CMD`: `npm run
-migrate && npm start`) — no separate migration step. Seeding (`npm run seed`) is manual, run
-once against the stage `DATABASE_URL` after the first successful deploy; it creates the demo
-`admin@newsroom.test` / `password123` account (hardcoded in `src/seed/index.ts`, not a secret —
-sandbox-only, never used in prod) alongside 3 demo rubrics/articles/page templates.
+migrate && npm start`) — no separate migration step. Seeding runs via a `seed` service in
+`docker-compose.yml` (`restart: "no"`, `npm run migrate && npm run seed`) — the only way to run
+a one-off command against the stage DB, since there is no Dokploy exec/SSH access to this host.
+It creates the demo `admin@newsroom.test` / `password123` account (hardcoded in
+`src/seed/index.ts`, not a secret — sandbox-only, never used in prod) alongside 3 demo
+rubrics/articles/page templates. Safe to leave in the compose file long-term: it only runs once
+per `docker compose up`/redeploy, and a second run fails loudly (unique-email constraint) rather
+than duplicating data.
 
 Locally on Contabo, `docker compose up --build` still works for a quick prod-like smoke test
 (builds the image, starts `app`+`worker`+`db`) — just without a published port; reach it with

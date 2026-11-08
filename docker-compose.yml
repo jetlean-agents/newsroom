@@ -60,6 +60,26 @@ services:
       db:
         condition: service_healthy
 
+  seed:
+    # One-shot: no Dokploy exec/SSH access to this host, so this is the only way to
+    # run `npm run seed` against the stage DB. Safe to leave in the compose file —
+    # `restart: "no"` means it only runs once per `docker compose up`/redeploy, and
+    # `payload.create`'s unique-email constraint makes a second run fail loudly
+    # (exit 1) rather than duplicate the demo users/articles.
+    build: .
+    # migrate first (idempotent, race-safe against `app`'s own startup migrate) —
+    # seed needs the schema to exist and can start before `app` has migrated it.
+    command: ["sh", "-c", "npm run migrate && npm run seed"]
+    mem_limit: 256m
+    cpus: 0.5
+    restart: "no"
+    environment:
+      DATABASE_URL: postgres://newsroom:${POSTGRES_PASSWORD}@db:5432/newsroom
+      PAYLOAD_SECRET: ${PAYLOAD_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:17
     mem_limit: 512m
