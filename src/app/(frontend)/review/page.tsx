@@ -30,7 +30,12 @@ function rubricTitle(article: Article): string {
  * the way the generic Payload admin edit view would require. Reachable only
  * by an authenticated editor/admin; everyone else is bounced to /admin to log in.
  */
-export default async function ReviewQueuePage() {
+export default async function ReviewQueuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ id?: string }>
+}) {
+  const { id } = await searchParams
   const payload = await getPayloadClient()
   const headers = await getHeaders()
   const { user } = await payload.auth({ headers })
@@ -77,5 +82,13 @@ export default async function ReviewQueuePage() {
     }
   })
 
-  return <ReviewQueueClient initialQueue={items} />
+  // ?id=<articleId> (e2e/review-queue.spec.ts): pins one card to the front so a
+  // test can address it directly instead of depending on queue order/other in_review articles.
+  const pinnedId = id ? Number(id) : null
+  const orderedItems =
+    pinnedId != null
+      ? [...items.filter((i) => i.id === pinnedId), ...items.filter((i) => i.id !== pinnedId)]
+      : items
+
+  return <ReviewQueueClient initialQueue={orderedItems} />
 }
