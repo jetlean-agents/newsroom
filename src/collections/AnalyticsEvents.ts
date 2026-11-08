@@ -1,5 +1,13 @@
 import type { CollectionConfig } from 'payload'
 
+/**
+ * Anonymous create is intentional — this is where logged-out reader beacons
+ * land (scroll depth, next-article clicks). It is still safe against the
+ * FACT-204 "anonymous write" concern: the only writable fields are `article`
+ * (a relationship Payload validates against a real id) and `kind` (a closed
+ * enum) — there is no free-text/arbitrary-payload field to abuse, and reads
+ * stay admin-only.
+ */
 export const AnalyticsEvents: CollectionConfig = {
   slug: 'analytics_events',
   admin: { useAsTitle: 'kind', hidden: true },

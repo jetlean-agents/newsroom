@@ -53,6 +53,18 @@ async function upsertRotatingUser(
   })
 }
 
+/**
+ * All demo content below is keyed by `title`, which is unique enough for
+ * this fixed seed data set and maps onto each collection's unique `slug` —
+ * so a second seed run must look up by title before creating, or it dies on
+ * a slug unique-constraint violation and exits 1 (the Dokploy "seed" service
+ * ends up `exited(1)` after every deploy — FACT-204).
+ */
+async function findByTitle(payload: Payload, collection: 'rubrics' | 'tags' | 'pages' | 'articles', title: string) {
+  const existing = await payload.find({ collection, where: { title: { equals: title } }, limit: 1 })
+  return existing.docs[0] ?? null
+}
+
 async function main() {
   const payload = await getPayloadClient()
 
@@ -82,15 +94,18 @@ async function main() {
   const rubrics = []
   for (const title of rubricTitles) {
     rubrics.push(
-      await payload.create({
-        collection: 'rubrics',
-        data: { title, description: `Демо-рубрика: ${title}` },
-        disableTransaction: true,
-      }),
+      (await findByTitle(payload, 'rubrics', title)) ||
+        (await payload.create({
+          collection: 'rubrics',
+          data: { title, description: `Демо-рубрика: ${title}` },
+          disableTransaction: true,
+        })),
     )
   }
 
-  const tag = await payload.create({ collection: 'tags', data: { title: 'демо' }, disableTransaction: true })
+  const tag =
+    (await findByTitle(payload, 'tags', 'демо')) ||
+    (await payload.create({ collection: 'tags', data: { title: 'демо' }, disableTransaction: true }))
 
   const demoBodyRichText = (text: string) => ({
     root: {
@@ -123,6 +138,7 @@ async function main() {
   for (let i = 0; i < articles.length; i++) {
     const a = articles[i]
     const rubric = rubrics[i % rubrics.length]
+    if (await findByTitle(payload, 'articles', a.title)) continue
     await payload.create({
       collection: 'articles',
       data: {
@@ -149,8 +165,10 @@ async function main() {
 
   // Walk one article through the real workflow so there's something in the
   // in_review queue AND something published, matching the admin review-queue AC.
-  const all = await payload.find({ collection: 'articles', limit: 10 })
-  const [first, second] = all.docs
+  // Looked up by the fixed demo titles (not a blind "first 10"), so a second
+  // run republishes the same two demo articles instead of drifting.
+  const first = await findByTitle(payload, 'articles', articles[0].title)
+  const second = await findByTitle(payload, 'articles', articles[1].title)
   if (first) {
     await payload.update({
       collection: 'articles',
@@ -170,30 +188,19 @@ async function main() {
     })
   }
 
-  await payload.create({
-    collection: 'pages',
-    data: {
-      title: 'Редакційна політика',
-      body: demoBodyRichText('[Чернетка-шаблон] Редакційна політика ресурсу буде заповнена пізніше. Контактні дані: [TBD].'),
-    },
-    disableTransaction: true,
-  })
-  await payload.create({
-    collection: 'pages',
-    data: {
-      title: 'Розкриття використання ШІ',
-      body: demoBodyRichText('[Чернетка-шаблон] Опис підходу до використання ШІ. Деталі: [TBD].'),
-    },
-    disableTransaction: true,
-  })
-  await payload.create({
-    collection: 'pages',
-    data: {
-      title: 'Контакти',
-      body: demoBodyRichText('[Чернетка-шаблон] Контактна інформація буде додана після вибору бренду. Email: [TBD].'),
-    },
-    disableTransaction: true,
-  })
+  const pages = [
+    { title: 'Редакційна політика', body: '[Чернетка-шаблон] Редакційна політика ресурсу буде заповнена пізніше. Контактні дані: [TBD].' },
+    { title: 'Розкриття використання ШІ', body: '[Чернетка-шаблон] Опис підходу до використання ШІ. Деталі: [TBD].' },
+    { title: 'Контакти', body: '[Чернетка-шаблон] Контактна інформація буде додана після вибору бренду. Email: [TBD].' },
+  ]
+  for (const p of pages) {
+    if (await findByTitle(payload, 'pages', p.title)) continue
+    await payload.create({
+      collection: 'pages',
+      data: { title: p.title, body: demoBodyRichText(p.body) },
+      disableTransaction: true,
+    })
+  }
 
   console.log('Seed complete: 3 rubrics, 1 tag, 3 users, 3 demo articles (2 published, 1 in_review), 3 page templates.')
   process.exit(0)
