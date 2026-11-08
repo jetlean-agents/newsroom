@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { robotsMeta, thinPageRobotsMeta } from '@/lib/env'
+import { robotsMeta, thinPageRobotsMeta, INTERNAL_BASE_URL } from '@/lib/env'
 
 export const config = {
   // Content pages + /admin (sandbox must stay fully noindex, FACT-170 review) — never
@@ -21,7 +21,9 @@ export async function middleware(req: NextRequest) {
 
   if (pathname.startsWith('/articles/')) {
     const slug = pathname.split('/').pop()
-    const statusUrl = new URL(`/api/articles/${slug}/status`, req.nextUrl.origin)
+    // Internal loopback, never req.nextUrl.origin (the public hostname) — see
+    // INTERNAL_BASE_URL in @/lib/env for why that self-fetch is unreliable (FACT-244).
+    const statusUrl = new URL(`/api/articles/${slug}/status`, INTERNAL_BASE_URL)
 
     try {
       const res = await fetch(statusUrl)
@@ -32,8 +34,10 @@ export async function middleware(req: NextRequest) {
           { status: 410, headers: { 'content-type': 'text/html; charset=utf-8', 'X-Robots-Tag': robotsMeta() } },
         )
       }
-    } catch {
-      // If the status check fails, fall through to normal page rendering/404.
+    } catch (err) {
+      // Fall through to normal page rendering/404, but don't swallow the error silently —
+      // a failing status check here otherwise looks indistinguishable from "slug doesn't exist".
+      console.error(`[middleware] status check failed for ${statusUrl}:`, err)
     }
   }
 
