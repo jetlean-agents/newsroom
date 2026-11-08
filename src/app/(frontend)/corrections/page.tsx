@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getPayloadClient } from '@/lib/payload'
 import type { Article } from '@/payload-types'
+import { lastActivityDate, selectCorrectionsArticles } from '@/lib/corrections'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,27 +9,34 @@ export default async function CorrectionsPage() {
   const payload = await getPayloadClient()
   const result = await payload.find({
     collection: 'articles',
-    where: { status: { equals: 'published' } },
-    sort: '-updated_at',
+    where: { status: { in: ['published', 'unpublished'] } },
     limit: 50,
   })
 
-  const withCorrections = result.docs.filter((a) => (a.corrections || []).length > 0)
+  const items = selectCorrectionsArticles(result.docs as Article[])
 
   return (
     <div>
       <h1>Виправлення</h1>
       <p>Усі суттєві виправлення до опублікованих матеріалів фіксуються тут та у самій статті.</p>
-      {withCorrections.map((a: Article) => (
-        <article key={a.id} className="feed-item">
-          <h2><Link href={`/articles/${a.slug}`}>{a.title}</Link></h2>
-          <ul>
-            {(a.corrections || []).map((c: NonNullable<Article['corrections']>[number], i: number) => (
-              <li key={i}>{c.date ? new Date(c.date).toLocaleDateString('uk-UA') : ''}: {c.note}</li>
-            ))}
-          </ul>
-        </article>
-      ))}
+      {items.map((a: Article) => {
+        const retractedAt = a.status === 'unpublished' ? lastActivityDate(a) : null
+        return (
+          <article key={a.id} className="feed-item">
+            <h2><Link href={`/articles/${a.slug}`}>{a.title}</Link></h2>
+            {a.status === 'unpublished' && (
+              <p className="retraction-note">
+                Матеріал знято{retractedAt ? `: ${new Date(retractedAt).toLocaleDateString('uk-UA')}` : ''}
+              </p>
+            )}
+            <ul>
+              {(a.corrections || []).map((c: NonNullable<Article['corrections']>[number], i: number) => (
+                <li key={i}>{c.date ? new Date(c.date).toLocaleDateString('uk-UA') : ''}: {c.note}</li>
+              ))}
+            </ul>
+          </article>
+        )
+      })}
     </div>
   )
 }
