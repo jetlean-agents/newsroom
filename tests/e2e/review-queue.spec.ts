@@ -74,8 +74,8 @@ test.describe('fast review queue /review (skipped without E2E_* credentials)', (
     const title = uniqueTitle('review-queue')
     const article = await createInReviewArticle(page, editor.id, rubricId, title)
 
-    await page.goto('/review')
-    await expect(page.getByText(title)).toBeVisible()
+    await page.goto(`/review?id=${article.id}`)
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
     await expect(page.getByText('Приклад джерела')).toBeVisible()
 
     await page.getByRole('button', { name: /Опублікувати/ }).click()
