@@ -14,8 +14,12 @@ export const Events: CollectionConfig = {
   },
   access: {
     read: ({ req }) => !!req.user,
-    create: () => true,
-    update: ({ req }) => !!req.user,
+    // The ingestion worker writes clusters through the Local API
+    // (overrideAccess, see src/jobs/ingest/clusterEvents.ts), which bypasses
+    // this check entirely. Over REST only admin/editor may create or update —
+    // an anonymous or author-role POST/PATCH must get 401/403 (FACT-204).
+    create: ({ req }) => req.user?.role === 'admin' || req.user?.role === 'editor',
+    update: ({ req }) => req.user?.role === 'admin' || req.user?.role === 'editor',
     delete: ({ req }) => req.user?.role === 'admin',
   },
   fields: [

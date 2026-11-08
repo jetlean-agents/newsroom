@@ -91,10 +91,11 @@ change any of these passwords on stage: set a new value in Dokploy env, redeploy
 `newsroom` compose app.
 
 Safe to leave `seed` in the compose file long-term: it only runs once per `docker compose
-up`/redeploy, and content creation past the users section still fails loudly (exit 1) on a
-re-run's duplicate rubrics/articles — but that's after the password rotations above it have
-already applied, so the one-shot container showing "exited 1" on a second run is expected,
-not a sign the rotation failed.
+up`/redeploy, and the seed is idempotent (FACT-204) — rubrics/tags/pages/the three demo
+articles are looked up by title before creating, so a re-run exits 0 and creates no
+duplicates; the three accounts' passwords still rotate to whatever `SEED_ADMIN_PASSWORD`/
+`SEED_DEMO_PASSWORD` currently are. The one-shot container should show `exited (0)` after
+every deploy, not `exited (1)`.
 
 Locally on Contabo, `docker compose up --build` still works for a quick prod-like smoke test
 (builds the image, starts `app`+`worker`+`db`) — just without a published port; reach it with
