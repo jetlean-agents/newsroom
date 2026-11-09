@@ -49,4 +49,98 @@ describe('classifySensitivity (FACT-337 scope item 4)', () => {
     const result = classifySensitivity('ПРЕЗИДЕНТ зустрівся з парламентом.')
     expect(result.sensitive).toBe(true)
   })
+
+  describe('false-positive substring matches (FACT-362)', () => {
+    it('does not flag "безпек" inside "кібербезпека"', () => {
+      const result = classifySensitivity('Конференція з кібербезпеки пройшла в Києві.')
+      expect(result.sensitive).toBe(false)
+    })
+
+    it('still flags a real war_safety "безпек" match', () => {
+      const result = classifySensitivity('Рада з питань національної безпеки зібралася на екстрене засідання.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('does not flag "дрон" inside "адронний" (hadron collider)', () => {
+      const result = classifySensitivity('Великий адронний колайдер запрацював на повну потужність.')
+      expect(result.sensitive).toBe(false)
+    })
+
+    it('still flags a real war_safety "дрон" match', () => {
+      const result = classifySensitivity('Над містом помітили ворожий дрон.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('does not flag "аварі" inside "безаварійний" (accident-free)', () => {
+      const result = classifySensitivity('Компанія звітує про безаварійний рік роботи своїх водіїв.')
+      expect(result.sensitive).toBe(false)
+    })
+
+    it('still flags a real deaths_disasters "аварі" match', () => {
+      const result = classifySensitivity('На трасі сталася аварія за участю трьох автомобілів.')
+      expect(result.categories).toContain('deaths_disasters')
+    })
+
+    it('does not flag "операці" in "банківські операції" (banking transactions)', () => {
+      const result = classifySensitivity('Банк оголосив про нові тарифи на банківські операції для клієнтів.')
+      expect(result.sensitive).toBe(false)
+    })
+
+    it('still flags a real medicine "операці" match', () => {
+      const result = classifySensitivity('Лікарі провели складну операцію пацієнту вночі.')
+      expect(result.categories).toContain('medicine')
+    })
+  })
+
+  describe('prefixed/compound forms must still match (PO review 09.11, FACT-362)', () => {
+    it('flags "коронавірус" (вірус)', () => {
+      const result = classifySensitivity('Коронавірус знову поширюється по регіону.')
+      expect(result.categories).toContain('medicine')
+    })
+
+    it('flags "антикорупційний" (корупці)', () => {
+      const result = classifySensitivity('Антикорупційний суд розгляне справу наступного тижня.')
+      expect(result.categories).toContain('accusations')
+    })
+
+    it('flags "деокупація" (окупац)', () => {
+      const result = classifySensitivity('Деокупація Криму залишається метою держави.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "демобілізація" (мобілізац)', () => {
+      const result = classifySensitivity('Демобілізація частини військових почнеться у грудні.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "протиракетна" (ракетн)', () => {
+      const result = classifySensitivity('Протиракетна оборона столиці посилена цієї ночі.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "антитерористична" (терор)', () => {
+      const result = classifySensitivity('Антитерористична операція триває у прикордонному районі.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "контратака" (атака)', () => {
+      const result = classifySensitivity('Контратака ЗСУ відновила контроль над селищем.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "небезпека" (безпек)', () => {
+      const result = classifySensitivity('Повітряна небезпека оголошена для кількох областей.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "антидрон" (дрон)', () => {
+      const result = classifySensitivity('Місто закупило нову систему антидрон для захисту об’єктів.')
+      expect(result.categories).toContain('war_safety')
+    })
+
+    it('flags "кібератака" (атака)', () => {
+      const result = classifySensitivity('Кібератака вивела з ладу сайт міністерства на кілька годин.')
+      expect(result.categories).toContain('war_safety')
+    })
+  })
 })

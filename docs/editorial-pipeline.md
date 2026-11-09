@@ -203,7 +203,20 @@ right after creation, requires ALL of:
     text: war/safety, politics, medicine, accusations-against-people,
     deaths/disasters (Ukrainian keyword lists, pure/no network, also what
     `Articles.ts` recomputes into `Article.sensitive`/`sensitive_categories`
-    on every save, server-owned like originality/fact_flags above);
+    on every save, server-owned like originality/fact_flags above). Matching
+    stays substring-first on purpose (PO review 09.11, FACT-362): a missed
+    sensitive topic is worse than one extra article in `/review`, and
+    Ukrainian prefixes mean a stricter word-boundary check breaks real
+    matches too — "деокупація", "демобілізація", "антитерористична",
+    "контратака", "протиракетна" must still fire on their base keyword.
+    Only a short, explicit exception list is carved out: known unrelated
+    compounds that merely *contain* a keyword substring — "кібербезпека",
+    "адронний" (hadron), "безаварійний" (accident-free) — are blanked out
+    before matching (`FALSE_POSITIVE_COMPOUNDS`), and "операці" specifically
+    skips when immediately preceded by a banking/financial word (so
+    "банківські операції" doesn't read as medicine, `EXCLUDE_PRECEDING`).
+    Any addition to either list must be this narrow — never a general
+    boundary rule, which would also swallow the prefixed forms above;
   - **and** the same Anthropic call's own `sensitive`/`sensitiveCategories`
     judgment from its JSON response (`draftProvider.ts`'s
     `ANTHROPIC_SYSTEM_PROMPT`) — catches phrasing the keyword list can't.
@@ -356,6 +369,26 @@ admin session cookie) returns:
   `archive`d rows), `failedLast24h`, and `lastDispatchAt` (last
   `ingest-dispatch-polls` tick — a stale value means the worker itself isn't
   running, not just one source failing).
+- `funnel` (FACT-362): the `events -> draft -> publish` funnel, so a run that
+  drafts little/nothing can be diagnosed without container logs either:
+  - `events.pendingConfirmed`: events with `status=new AND
+    independent_confirmation=true` — ready for `draftFromEvent()`'s next
+    tick but not yet picked up. A near-zero number with lots of `new,
+    independent_confirmation=false` events (visible in the admin Events list)
+    points at `EVENT_CONFIRMATION_MIN_SOURCES` vs. actual per-topic source
+    coverage, not at the draft/publish code at all.
+  - `draftFromEventRuns`: the last 20 `ingest-draft-from-event` pg-boss runs
+    (`job` + `archive`), each with `drafted`, `autoPublished`,
+    `skippedBudget`, `skippedError` + `skippedErrorReasons` (grouped by error
+    message), `skippedSpendLimit`, `skippedRubricCap`, and `provider`. This is
+    `draftFromEvent()`'s own return value — `worker.ts` returns it from the
+    `boss.work` handler so pg-boss persists it as the job's `output` column,
+    instead of it only ever reaching `console.log`.
+  - `articlesBlockedBy`: how many stored articles each auto-publish gate
+    (`isSensitive`, `originality_blocked`, a non-empty `fact_flags`) is
+    currently flagging — independent of any single run, so a gate that's
+    unusually trigger-happy (see the dictionary false-positive fix below)
+    shows up as a number, not a guess.
 
 See `src/jobs/ingest/ingestStatus.ts`. Any handler-level crash in
 `ingest-poll-source` (bad job payload, a bug before `pollSource` even runs)
