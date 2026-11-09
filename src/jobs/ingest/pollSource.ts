@@ -19,6 +19,48 @@ export interface PollResult {
 /** Consecutive poll failures before a source auto-disables itself (dead-letter). */
 const MAX_CONSECUTIVE_ERRORS = 5
 
+/**
+ * Entry point for the `ingest-poll-source` pg-boss handler (src/jobs/worker.ts).
+ * Wraps `pollSource` so a crash *before* it (bad job payload, `findByID` throwing,
+ * a bug in `pollSource` itself) still lands on `sources.last_error`/`consecutive_errors`
+ * instead of only existing in pg-boss's `retry`/`failed` job state, which isn't visible
+ * without container log access (FACT-357).
+ */
+export async function handlePollSourceJob(
+  job: { data: unknown },
+  payload: Awaited<ReturnType<typeof getPayload>>,
+): Promise<PollResult> {
+  const { sourceId } = job.data as { sourceId: number }
+  try {
+    const source = await payload.findByID({ collection: 'sources', id: sourceId })
+    return await pollSource(source)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await recordHandlerCrash(payload, sourceId, message)
+    throw err
+  }
+}
+
+async function recordHandlerCrash(payload: Awaited<ReturnType<typeof getPayload>>, sourceId: number, message: string): Promise<void> {
+  try {
+    const source = await payload.findByID({ collection: 'sources', id: sourceId })
+    const consecutiveErrors = (source.consecutive_errors || 0) + 1
+    const deadLetter = consecutiveErrors >= MAX_CONSECUTIVE_ERRORS
+    await payload.update({
+      collection: 'sources',
+      id: sourceId,
+      data: {
+        last_polled_at: new Date().toISOString(),
+        last_error: `handler crashed: ${message}${deadLetter ? ` (auto-disabled after ${consecutiveErrors} failures)` : ''}`,
+        consecutive_errors: consecutiveErrors,
+        ...(deadLetter ? { enabled: false } : {}),
+      },
+    })
+  } catch {
+    // Best effort — don't mask the original crash with a secondary one.
+  }
+}
+
 /** Dedups + stores normalized items (shared by the RSS/Atom and API branches below). */
 async function storeItems(
   payload: Awaited<ReturnType<typeof getPayload>>,
