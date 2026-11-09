@@ -45,8 +45,8 @@ export function mapNbuRatesToItem(rates: NbuRate[]): ApiItem | null {
 /** НБУ official exchange rates (NBUStatService): one JSON array, no pagination, polled at most hourly per the registry. */
 export async function fetchNbuItems(): Promise<ApiFetchResult> {
   const res = await fetchJson<NbuRate[]>(NBU_URL)
-  if (res.status === 'error') return { status: 'error', items: [], error: res.error }
+  if (res.status === 'error') return { status: 'error', items: [], error: res.error, httpStatus: res.httpStatus }
 
   const item = mapNbuRatesToItem(res.data ?? [])
-  return { status: 'ok', items: item ? [item] : [] }
+  return { status: 'ok', items: item ? [item] : [], httpStatus: res.httpStatus }
 }

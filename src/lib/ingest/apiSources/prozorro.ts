@@ -56,7 +56,7 @@ async function fetchTenderDetail(id: string): Promise<ProzorroTenderDetail | nul
  */
 export async function fetchProzorroItems(): Promise<ApiFetchResult> {
   const list = await fetchJson<{ data: ProzorroTenderListEntry[] }>(`${TENDERS_LIST_URL}${MAX_TENDERS_PER_POLL}`)
-  if (list.status === 'error') return { status: 'error', items: [], error: list.error }
+  if (list.status === 'error') return { status: 'error', items: [], error: list.error, httpStatus: list.httpStatus }
 
   const entries = list.data?.data ?? []
   const items: ApiItem[] = []
@@ -67,5 +67,5 @@ export async function fetchProzorroItems(): Promise<ApiFetchResult> {
     await sleep(RATE_LIMIT_DELAY_MS)
   }
 
-  return { status: 'ok', items }
+  return { status: 'ok', items, httpStatus: list.httpStatus }
 }

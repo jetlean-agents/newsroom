@@ -437,6 +437,26 @@ export interface Source {
   last_success_at?: string | null;
   last_error?: string | null;
   consecutive_errors?: number | null;
+  /**
+   * HTTP status of the last poll attempt (absent when the attempt never got a response, e.g. a timeout).
+   */
+  last_http_status?: number | null;
+  /**
+   * Items the last poll returned, before dedup.
+   */
+  last_fetched?: number | null;
+  /**
+   * New source_items the last poll actually stored, after dedup.
+   */
+  last_stored?: number | null;
+  /**
+   * source_items stored for this source in the last 24h.
+   */
+  items_24h?: number | null;
+  /**
+   * source_items stored for this source in the last 7 days.
+   */
+  items_7d?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -739,6 +759,11 @@ export interface SourcesSelect<T extends boolean = true> {
   last_success_at?: T;
   last_error?: T;
   consecutive_errors?: T;
+  last_http_status?: T;
+  last_fetched?: T;
+  last_stored?: T;
+  items_24h?: T;
+  items_7d?: T;
   updatedAt?: T;
   createdAt?: T;
 }

@@ -61,6 +61,21 @@ async function recordHandlerCrash(payload: Awaited<ReturnType<typeof getPayload>
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Counts of this source's `source_items` stored in the last 24h/7d (FACT-345 admin status columns). */
+async function getRecentItemCounts(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  sourceId: Source['id'],
+): Promise<{ items_24h: number; items_7d: number }> {
+  const now = Date.now()
+  const [day, week] = await Promise.all([
+    payload.count({ collection: 'source-items', where: { source: { equals: sourceId }, fetched_at: { greater_than_equal: new Date(now - DAY_MS).toISOString() } } }),
+    payload.count({ collection: 'source-items', where: { source: { equals: sourceId }, fetched_at: { greater_than_equal: new Date(now - 7 * DAY_MS).toISOString() } } }),
+  ])
+  return { items_24h: day.totalDocs, items_7d: week.totalDocs }
+}
+
 /** Dedups + stores normalized items (shared by the RSS/Atom and API branches below). */
 async function storeItems(
   payload: Awaited<ReturnType<typeof getPayload>>,
@@ -123,10 +138,11 @@ export async function pollSource(source: Source): Promise<PollResult> {
 
   const allowed = await isAllowedByRobots(source.url)
   if (!allowed) {
+    const counts = await getRecentItemCounts(payload, source.id)
     await payload.update({
       collection: 'sources',
       id: source.id,
-      data: { last_polled_at: new Date().toISOString(), last_error: 'blocked by robots.txt' },
+      data: { last_polled_at: new Date().toISOString(), last_error: 'blocked by robots.txt', last_http_status: null, last_fetched: 0, last_stored: 0, ...counts },
     })
     return { sourceKey: source.source_key, skipped: 'robots.txt disallow', fetched: 0, stored: 0 }
   }
@@ -137,6 +153,7 @@ export async function pollSource(source: Source): Promise<PollResult> {
   if (result.status === 'error') {
     const consecutiveErrors = (source.consecutive_errors || 0) + 1
     const deadLetter = consecutiveErrors >= MAX_CONSECUTIVE_ERRORS
+    const counts = await getRecentItemCounts(payload, source.id)
     await payload.update({
       collection: 'sources',
       id: source.id,
@@ -144,6 +161,10 @@ export async function pollSource(source: Source): Promise<PollResult> {
         last_polled_at: now,
         last_error: deadLetter ? `${result.error} (auto-disabled after ${consecutiveErrors} failures)` : result.error,
         consecutive_errors: consecutiveErrors,
+        last_http_status: result.httpStatus ?? null,
+        last_fetched: 0,
+        last_stored: 0,
+        ...counts,
         ...(deadLetter ? { enabled: false } : {}),
       },
     })
@@ -151,16 +172,27 @@ export async function pollSource(source: Source): Promise<PollResult> {
   }
 
   if (result.status === 'not_modified') {
+    const counts = await getRecentItemCounts(payload, source.id)
     await payload.update({
       collection: 'sources',
       id: source.id,
-      data: { last_polled_at: now, last_success_at: now, last_error: null, consecutive_errors: 0 },
+      data: {
+        last_polled_at: now,
+        last_success_at: now,
+        last_error: null,
+        consecutive_errors: 0,
+        last_http_status: result.httpStatus ?? null,
+        last_fetched: 0,
+        last_stored: 0,
+        ...counts,
+      },
     })
     return { sourceKey: source.source_key, fetched: 0, stored: 0 }
   }
 
   const items = parseFeed(result.body ?? '')
   const stored = await storeItems(payload, source, items, now)
+  const counts = await getRecentItemCounts(payload, source.id)
 
   await payload.update({
     collection: 'sources',
@@ -172,6 +204,10 @@ export async function pollSource(source: Source): Promise<PollResult> {
       consecutive_errors: 0,
       etag: result.etag ?? source.etag,
       last_modified: result.lastModified ?? source.last_modified,
+      last_http_status: result.httpStatus ?? null,
+      last_fetched: items.length,
+      last_stored: stored,
+      ...counts,
     },
   })
 
@@ -195,6 +231,7 @@ async function pollApiSource(payload: Awaited<ReturnType<typeof getPayload>>, so
   if (result.status === 'error') {
     const consecutiveErrors = (source.consecutive_errors || 0) + 1
     const deadLetter = consecutiveErrors >= MAX_CONSECUTIVE_ERRORS
+    const counts = await getRecentItemCounts(payload, source.id)
     await payload.update({
       collection: 'sources',
       id: source.id,
@@ -202,6 +239,10 @@ async function pollApiSource(payload: Awaited<ReturnType<typeof getPayload>>, so
         last_polled_at: now,
         last_error: deadLetter ? `${result.error} (auto-disabled after ${consecutiveErrors} failures)` : result.error,
         consecutive_errors: consecutiveErrors,
+        last_http_status: result.httpStatus ?? null,
+        last_fetched: 0,
+        last_stored: 0,
+        ...counts,
         ...(deadLetter ? { enabled: false } : {}),
       },
     })
@@ -209,11 +250,21 @@ async function pollApiSource(payload: Awaited<ReturnType<typeof getPayload>>, so
   }
 
   const stored = await storeItems(payload, source, result.items, now)
+  const counts = await getRecentItemCounts(payload, source.id)
 
   await payload.update({
     collection: 'sources',
     id: source.id,
-    data: { last_polled_at: now, last_success_at: now, last_error: null, consecutive_errors: 0 },
+    data: {
+      last_polled_at: now,
+      last_success_at: now,
+      last_error: null,
+      consecutive_errors: 0,
+      last_http_status: result.httpStatus ?? null,
+      last_fetched: result.items.length,
+      last_stored: stored,
+      ...counts,
+    },
   })
 
   return { sourceKey: source.source_key, fetched: result.items.length, stored }
