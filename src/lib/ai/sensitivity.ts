@@ -41,12 +41,33 @@ const CATEGORY_KEYWORDS: Record<SensitivityCategory, string[]> = {
 }
 
 /**
+ * PO review 09.11 (FACT-362): a missed sensitive topic is worse than one
+ * extra article sitting in `/review`, so matching stays substring-first —
+ * every keyword is a stem meant to fire on any prefix/suffix inflection
+ * (война/воєнн catches військовий, воєнна, ...; Ukrainian prefixes like
+ * "де-"/"демо-"/"анти-"/"контр-"/"проти-" are exactly why: "деокупація",
+ * "демобілізація", "антитерористична", "контратака", "протиракетна" must
+ * still match). A leading word-boundary check (tried first, reverted) broke
+ * every one of those.
+ *
+ * The real false positives found (FACT-362) are a short, *specific* list of
+ * unrelated words that happen to fully contain a keyword as a substring —
+ * "кібербезпека" (cyber-security, not без+пек), "адронний" (hadron, not
+ * дрон), "безаварійний" (accident-free, the opposite of an "аварі") — plus
+ * one same-word-different-sense case, "операції" meaning a bank transaction
+ * rather than a medical procedure. Both are handled as narrow, explicit
+ * exceptions below, never as a general pattern that could also swallow a
+ * real prefixed match.
+ */
+const FALSE_POSITIVE_COMPOUNDS = ['кібербезпек', 'адрон', 'безаварі']
+
+/**
  * Keywords that are themselves real stems but whose match is a *different*,
  * non-sensitive sense of the word when a specific other word sits just
  * before it in the same sentence — e.g. "банківські операції" (banking
- * transactions) vs. a medical "операція". Word-boundary matching alone
- * can't tell these apart (both are the same whole word), so this is a
- * narrow, explicit exception list rather than a general heuristic.
+ * transactions) vs. a medical "операція". These are two separate words, so
+ * FALSE_POSITIVE_COMPOUNDS' contained-substring check doesn't apply; this is
+ * a narrow, explicit exception list rather than a general heuristic.
  */
 const EXCLUDE_PRECEDING: Partial<Record<SensitivityCategory, Record<string, string[]>>> = {
   medicine: {
@@ -60,21 +81,17 @@ function normalize(text: string): string {
   return text.toLowerCase().normalize('NFKC')
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 /**
- * Indices where `keyword` occurs as a word-start in `haystack` — i.e. not
- * immediately preceded by another letter/digit. Keywords here are stems
- * (e.g. "безпек" is meant to match "безпека", "безпечний", ...), so only the
- * *leading* edge is constrained: that's enough to stop "безпек" from firing
- * inside "кібербезпека" or "дрон" inside "адронний" (hadron), while still
- * matching every real inflection of the stem.
+ * Blanks out each known false-positive compound word (same length, so
+ * downstream match indices used for EXCLUDE_PRECEDING context windows stay
+ * correct) before any keyword is matched against the text.
  */
-function keywordStartIndices(haystack: string, keyword: string): number[] {
-  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(keyword)}`, 'gu')
-  return [...haystack.matchAll(re)].map((m) => m.index as number)
+function maskFalsePositiveCompounds(haystack: string): string {
+  let masked = haystack
+  for (const word of FALSE_POSITIVE_COMPOUNDS) {
+    if (masked.includes(word)) masked = masked.split(word).join(' '.repeat(word.length))
+  }
+  return masked
 }
 
 export type SensitivityResult = {
@@ -84,19 +101,23 @@ export type SensitivityResult = {
 
 /** Pure, deterministic, no network — safe to call on every Article save. */
 export function classifySensitivity(text: string): SensitivityResult {
-  const haystack = normalize(text)
+  const haystack = maskFalsePositiveCompounds(normalize(text))
   const categories: SensitivityCategory[] = []
   for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS) as [SensitivityCategory, string[]][]) {
     const excludeMap = EXCLUDE_PRECEDING[category]
     const matched = keywords.some((kw) => {
-      const indices = keywordStartIndices(haystack, kw)
-      if (!indices.length) return false
       const excludeWords = excludeMap?.[kw]
-      if (!excludeWords?.length) return true
-      return indices.some((idx) => {
+      if (!excludeWords?.length) return haystack.includes(kw)
+      // Check every occurrence, not just the first: one mention inside an
+      // excluded phrase shouldn't hide a later, unrelated real match.
+      let searchFrom = 0
+      while (true) {
+        const idx = haystack.indexOf(kw, searchFrom)
+        if (idx === -1) return false
         const context = haystack.slice(Math.max(0, idx - CONTEXT_WINDOW), idx)
-        return !excludeWords.some((ex) => context.includes(ex))
-      })
+        if (!excludeWords.some((ex) => context.includes(ex))) return true
+        searchFrom = idx + 1
+      }
     })
     if (matched) categories.push(category)
   }
