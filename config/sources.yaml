@@ -34,32 +34,15 @@
 #   last_verified    — дата проверки живым запросом в ЭТОМ прогоне: 2026-11-08 (curl -A "<Chrome UA>" -L -m 15, с Contabo)
 #   notes            — HTTP-код, content-type, количество items, оговорки, эскалации
 #
-# Все 85 источников (72 verified + 13 candidate) в этом прогоне проверены живым curl с этой машины
-# (Chrome/131 UA, -L -m 15) 2026-11-08. У verified дополнительно проверено количество <item>/<entry> > 0
-# (несколько фидов отдавали HTTP 200 с валидным content-type, но 0 items — такие остались в candidate
-# или не включены вовсе, см. notes конкретных источников).
+# 85 источников проверены живым curl 2026-11-08 (Chrome/131 UA, -L -m 15, FACT-235). У verified
+# дополнительно проверено количество <item>/<entry> > 0 (несколько фидов отдавали HTTP 200 с
+# валидным content-type, но 0 items — такие остались в candidate или не включены вовсе, см. notes
+# конкретных источников). FACT-338 (2026-11-09): +3 новых источника, rada_news_uk понижен
+# verified -> candidate (пустой канал) — текущий итог 88 источников (74 verified + 14 candidate),
+# см. sources_summary в конце файла и docs/sources/registry.md.
 
 sources:
-  # ===================== VERIFIED (72, живой фид с реальными items, curl + Chrome UA, Contabo) =====================
-
-  - id: rada_news_uk
-    name: "Верховна Рада України — стрічка новин"
-    type: rss
-    status: verified
-    url: "https://www.rada.gov.ua/rss/news.xml"
-    language: uk
-    usage: facts
-    rubrics: [polityka, podii]
-    region: natsional
-    topics: [politics, legislation]
-    terms_url: "https://www.rada.gov.ua"
-    reuse_terms: "Заголовок + факт + ссылка на rada.gov.ua; публичная информация органа власти, короткое цитирование + ссылка."
-    attribution_required: true
-    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15 мин"
-    poll_interval: "15m"
-    robots_ok: not_applicable
-    last_verified: "2026-11-07"
-    notes: "curl: HTTP 200, Content-Type application/xml, валидный RSS 2.0."
+  # ===================== VERIFIED (74, живой фид с реальными items, curl + Chrome UA, Contabo) =====================
 
   - id: ukrinform_lastnews
     name: "Укрінформ — стрічка останніх новин"
@@ -213,6 +196,25 @@ sources:
     last_verified: "2026-11-07"
     notes: "curl: HTTP 200, Content-Type application/rss+xml."
 
+  - id: icrc_general_rss
+    name: "ICRC — General RSS feed (International Committee of the Red Cross)"
+    type: rss
+    status: verified
+    url: "https://www.icrc.org/en/rss/general"
+    language: en
+    usage: facts
+    rubrics: [viina]
+    region: natsional
+    topics: [war, humanitarian_law, security]
+    terms_url: "https://www.icrc.org/en/terms-use"
+    reuse_terms: "Нейтральная международная гуманитарная организация (мандат по МГП); короткая цитата/факт + ссылка, без полного репоста."
+    attribution_required: true
+    rate_limit: "не публикуется; 1 раз/1 ч"
+    poll_interval: "1h"
+    robots_ok: not_applicable
+    last_verified: "2026-11-09"
+    notes: "FACT-338: curl HTTP 200, обнаружен через <link rel=alternate> на icrc.org/en, валидный RSS 2.0, 100 <item>. Закрывает второй facts-источник рубрики «Війна і безпека» (было 1 — mil.gov.ua, dsns.gov.ua, rnbo.gov.ua, gur.gov.ua проверены в этом прогоне: 403/404, не прошли)."
+
   - id: iaea_topnews
     name: "IAEA — Top News"
     type: rss
@@ -250,6 +252,25 @@ sources:
     robots_ok: not_applicable
     last_verified: "2026-11-07"
     notes: "curl: HTTP 200, Content-Type application/rss+xml;charset=UTF-8."
+
+  - id: ccu_gov_ua_rss
+    name: "Конституційний Суд України — новини"
+    type: rss
+    status: verified
+    url: "https://ccu.gov.ua/rss.xml"
+    language: uk
+    usage: facts
+    rubrics: [polityka, podii]
+    region: natsional
+    topics: [politics, judiciary]
+    terms_url: "https://ccu.gov.ua"
+    reuse_terms: "Официальный первоисточник (орган конституційної юрисдикції): можно цитировать і приводити факти/рішення з атрибуцією і посиланням."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/30 мин"
+    poll_interval: "30m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-09"
+    notes: "FACT-338: curl HTTP 200, обнаружен через href='rss.xml' на ccu.gov.ua, валидный RSS 2.0, 10 <item>. Добавлен после того, как rada_news_uk перестал отдавать items (см. ниже) — закрывает второй facts-источник рубрик «Політика» і «Події»."
 
   - id: ecb_press_rss
     name: "European Central Bank — Press releases (RSS)"
@@ -763,6 +784,25 @@ sources:
     robots_ok: not_applicable
     last_verified: "2026-11-08"
     notes: "curl: HTTP 200, Content-Type application/rss+xml; charset=UTF-8, валидный RSS, 10 items в этом прогоне."
+
+  - id: ui_org_ua_rss
+    name: "Український інститут (Ukrainian Institute) — новини"
+    type: rss
+    status: verified
+    url: "https://ui.org.ua/feed/"
+    language: uk
+    usage: facts
+    rubrics: [kultura]
+    region: natsional
+    topics: [culture]
+    terms_url: "https://ui.org.ua"
+    reuse_terms: "Державна установа при МЗС України (культурна дипломатія): можно цитировать і приводити факти з атрибуцією і посиланням."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/30 мин"
+    poll_interval: "30m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-09"
+    notes: "FACT-338: curl HTTP 200, обнаружен через <link rel=alternate> на ui.org.ua, валидный RSS 2.0 (WordPress feed), 12 <item>. Закрывает второй facts-источник рубрики «Культура» (было 1 — mcip.gov.ua)."
 
   - id: champion_sport_rss
     name: "Champion.com.ua — спортивні новини"
@@ -1410,7 +1450,26 @@ sources:
     last_verified: "2026-11-08"
     notes: "curl: HTTP 200, Content-Type application/xml;charset=utf-8, валидный RSS, 34 items в этом прогоне. Другий, незалежний від cheline.com.ua джерело для Чернігова — додано для диверсифікації."
 
-  # ===================== CANDIDATES (13, без автополлинга — требуют ручной проверки/эскалации) =====================
+  # ===================== CANDIDATES (14, без автополлинга — требуют ручной проверки/эскалации) =====================
+
+  - id: rada_news_uk
+    name: "Верховна Рада України — стрічка новин"
+    type: rss
+    status: candidate
+    url: "https://www.rada.gov.ua/rss/news.xml"
+    language: uk
+    usage: facts
+    rubrics: [polityka, podii]
+    region: natsional
+    topics: [politics, legislation]
+    terms_url: "https://www.rada.gov.ua"
+    reuse_terms: "Заголовок + факт + ссылка на rada.gov.ua; публичная информация органа власти, короткое цитирование + ссылка."
+    attribution_required: true
+    rate_limit: "не публикуется; опрашивать не чаще 1 раз/15 мин"
+    poll_interval: "15m"
+    robots_ok: not_applicable
+    last_verified: "2026-11-09"
+    notes: "РЕГРЕССИЯ (FACT-338, 2026-11-09): curl HTTP 200, application/xml, но канал пуст — 0 <item> (было валидно 2026-11-07/08). Понижено verified→candidate до повторной проверки; не автополлить, пока не вернёт items."
 
   - id: kmu_gov_ua_rss
     name: "Кабінет Міністрів України — новини"
@@ -1428,8 +1487,8 @@ sources:
     rate_limit: null
     poll_interval: null
     robots_ok: not_applicable
-    last_verified: "2026-11-07"
-    notes: "curl с Chrome UA: антибот-страница Radware Captcha (не 403/404, а интерактивная капча). Ручная проверка/альтернативный URL нужны; в автополлинг не включать."
+    last_verified: "2026-11-09"
+    notes: "curl с Chrome UA: антибот-страница Radware Captcha (не 403/404, а интерактивная капча). Повторная проверка FACT-338 (2026-11-09): без изменений, та же captcha-страница. Ручная проверка/альтернативный URL нужны; в автополлинг не включать."
 
   - id: president_gov_ua
     name: "Офіс Президента України — новини"
@@ -1660,13 +1719,15 @@ sources:
     notes: "curl: HTTP 200, Content-Type application/xml;charset=UTF-8. Терминология терминов использования на сайте не найдена в этом прогоне — эскалация перед включением."
 
 sources_summary:
-  verified_count: 72
-  candidate_count: 13
+  verified_count: 74
+  candidate_count: 14
   minimum_required: 70
+  min_per_rubric_total: 5
+  min_per_rubric_facts: 2
   rubric_coverage:
     podii: {signal: 27, facts: 2, total: 29}
     polityka: {signal: 5, facts: 2, total: 7}
-    viina: {signal: 3, facts: 1, total: 4}
+    viina: {signal: 3, facts: 2, total: 5}
     ekonomika: {signal: 5, facts: 8, total: 13}
     groshi: {signal: 2, facts: 3, total: 5}
     svit: {signal: 7, facts: 4, total: 11}
@@ -1674,8 +1735,16 @@ sources_summary:
     tekhnolohii: {signal: 1, facts: 11, total: 12}
     zdorovia: {signal: 4, facts: 1, total: 5}
     sport: {signal: 4, facts: 1, total: 5}
-    kultura: {signal: 3, facts: 1, total: 4}
+    kultura: {signal: 3, facts: 2, total: 5}
     rehiony: {signal: 22, facts: 1, total: 23}
+  rubric_coverage_gaps: [zdorovia, sport, rehiony]
+  note_fact338: >
+    FACT-338 (2026-11-09): rada_news_uk понижен verified -> candidate (пустой канал,
+    регрессия с 2026-11-07/08). Добавлены 3 новых verified facts-источника:
+    ccu_gov_ua_rss (polityka/podii, закрывает регрессию rada_news_uk),
+    icrc_general_rss (viina), ui_org_ua_rss (kultura). zdorovia/sport/rehiony остаются
+    с 1 facts-источником — второй официальный первоисточник не найден живым запросом
+    в этом прогоне (см. docs/sources/registry.md, раздел «Аудит и обновление реестра»).
   note: >
     72 источника со статусом verified прошли проверку живым запросом в этом прогоне
     (curl -A "<Chrome/131 UA>" -L -m 15, с Contabo, НЕ WebFetch) 2026-11-08 — HTTP 200,
