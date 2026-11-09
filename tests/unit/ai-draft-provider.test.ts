@@ -133,4 +133,80 @@ describe('AnthropicDraftProvider (AI_PROVIDER=anthropic — never called without
     expect(usageBody.input_tokens).toBe(800)
     expect(usageBody.output_tokens).toBe(700)
   })
+
+  /**
+   * Builds the same three-way fetch mock as the test above (Autoreg secret,
+   * Autoreg usage, Anthropic itself), but with the Anthropic leg's response
+   * body swappable per test — for the two PO-review (09.11) regression cases
+   * below, which both need a non-"happy path" Anthropic response.
+   */
+  async function setUpAutoregAndAnthropic(anthropicResponseJson: Record<string, unknown>) {
+    process.env.AUTOREG_API_URL = 'https://autoreg.example'
+    process.env.AUTOREG_SERVICE_TOKEN = 'tok'
+    process.env.AUTOREG_SITE_SLUG = 'news'
+    process.env.AUTOREG_SECRET_ID = '3'
+    vi.resetModules()
+    const { AnthropicDraftProvider: FreshAnthropicDraftProvider } = await import('@/lib/ai/draftProvider')
+
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.includes('/api/v1/secrets/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 3, provider: 'anthropic', value: 'sk-from-autoreg', is_active: true }),
+        }
+      }
+      if (url.includes('/api/v1/usage/')) {
+        return { ok: true, status: 201, json: async () => ({}) }
+      }
+      if (url.includes('api.anthropic.com')) {
+        return { ok: true, status: 200, json: async () => anthropicResponseJson }
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return { FreshAnthropicDraftProvider, fetchMock }
+  }
+
+  it('discards a truncated draft (stop_reason: max_tokens) as a generation error, not a saved draft (PO review 09.11)', async () => {
+    const { FreshAnthropicDraftProvider } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: '{"title": "cut off mid-sent' }],
+      usage: { input_tokens: 800, output_tokens: 4000 },
+      stop_reason: 'max_tokens',
+    })
+
+    await expect(new FreshAnthropicDraftProvider().generateDraft(input)).rejects.toThrow(/max_tokens/)
+  })
+
+  it('still reports usage to Autoreg even when the draft is then discarded for max_tokens (PO review 09.11)', async () => {
+    const { FreshAnthropicDraftProvider, fetchMock } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: '{"title": "cut off mid-sent' }],
+      usage: { input_tokens: 800, output_tokens: 4000 },
+      stop_reason: 'max_tokens',
+    })
+
+    await expect(new FreshAnthropicDraftProvider().generateDraft(input)).rejects.toThrow()
+
+    const usageCall = fetchMock.mock.calls.find(([url]) => url.includes('/api/v1/usage/'))
+    expect(usageCall).toBeTruthy()
+    const usageBody = JSON.parse(usageCall?.[1]?.body as string)
+    expect(usageBody.input_tokens).toBe(800)
+    expect(usageBody.output_tokens).toBe(4000)
+  })
+
+  it('still reports usage to Autoreg when the response text is not valid JSON (PO review 09.11 — usage must not be lost on any post-response failure)', async () => {
+    const { FreshAnthropicDraftProvider, fetchMock } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: 'not valid json at all' }],
+      usage: { input_tokens: 750, output_tokens: 120 },
+      stop_reason: 'end_turn',
+    })
+
+    await expect(new FreshAnthropicDraftProvider().generateDraft(input)).rejects.toThrow(/not valid JSON/)
+
+    const usageCall = fetchMock.mock.calls.find(([url]) => url.includes('/api/v1/usage/'))
+    expect(usageCall).toBeTruthy()
+    const usageBody = JSON.parse(usageCall?.[1]?.body as string)
+    expect(usageBody.input_tokens).toBe(750)
+    expect(usageBody.output_tokens).toBe(120)
+  })
 })

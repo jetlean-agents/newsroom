@@ -155,7 +155,18 @@ export class AnthropicDraftProvider implements DraftProvider {
       },
       body: JSON.stringify({
         model: AI_MODEL,
-        max_tokens: 2000,
+        // Headroom over the ~150-500 UA-word draft itself: Haiku 5.5 thinks
+        // by default (adaptive, effort "medium") and thinking tokens are
+        // billed as output AND count against this same budget — PO review
+        // (09.11) caught the original 2000 as too tight, risking a
+        // truncated/unparseable JSON response under the old limit.
+        max_tokens: 4000,
+        // Disabled outright rather than tuned down: this call only ever
+        // needs a short structured JSON draft, not a reasoning trace, and
+        // "disabled" is only valid at effort <= high — true for Haiku 5.5's
+        // default "medium". Also keeps the cost estimate in docs/editorial-
+        // pipeline.md accurate (it assumed no thinking tokens).
+        thinking: { type: 'disabled' },
         system: ANTHROPIC_SYSTEM_PROMPT,
         messages: [
           {
@@ -173,23 +184,20 @@ export class AnthropicDraftProvider implements DraftProvider {
     const data = (await res.json()) as {
       content?: Array<{ type: string; text?: string }>
       usage?: { input_tokens?: number; output_tokens?: number }
-    }
-    const text = data.content?.find((block) => block.type === 'text')?.text
-    if (!text) throw new Error('Anthropic response had no text content block.')
-
-    let parsed: Omit<DraftOutput, 'aiGenerated' | 'costUsd'>
-    try {
-      parsed = JSON.parse(text)
-    } catch {
-      throw new Error(`Anthropic response was not valid JSON: ${text.slice(0, 200)}`)
+      stop_reason?: string
     }
 
     const inputTokens = data.usage?.input_tokens ?? 0
     const outputTokens = data.usage?.output_tokens ?? 0
     const costUsd = estimateCostUsd(AI_MODEL, inputTokens, outputTokens)
 
-    // Best-effort — never lets a usage-reporting hiccup fail the draft itself
-    // (contract doc: a flush failure "сбой отправки не ломает генерацию").
+    // Reported right after a successful response — BEFORE the stop_reason
+    // check and the JSON parse below — so tokens Anthropic already billed
+    // are never lost to Autoreg's usage ledger just because this draft is
+    // then rejected/discarded (PO review 09.11: usage was previously only
+    // sent after a successful JSON.parse). Best-effort and async — never
+    // lets a usage-reporting hiccup fail the draft itself (contract doc: a
+    // flush failure "сбой отправки не ломает генерацию").
     if (resolved.source === 'autoreg' && resolved.secretId != null) {
       void reportUsage({
         secretId: resolved.secretId,
@@ -199,6 +207,20 @@ export class AnthropicDraftProvider implements DraftProvider {
         costUsd,
         model: AI_MODEL,
       })
+    }
+
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error('Anthropic response was truncated (stop_reason: max_tokens) — draft discarded, not a parseable generation.')
+    }
+
+    const text = data.content?.find((block) => block.type === 'text')?.text
+    if (!text) throw new Error('Anthropic response had no text content block.')
+
+    let parsed: Omit<DraftOutput, 'aiGenerated' | 'costUsd'>
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      throw new Error(`Anthropic response was not valid JSON: ${text.slice(0, 200)}`)
     }
 
     return { ...parsed, aiGenerated: true, costUsd }
