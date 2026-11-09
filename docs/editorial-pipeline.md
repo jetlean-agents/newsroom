@@ -342,7 +342,7 @@ deep-link-filter pattern FACT-168 used for the articles review queue:
 - **Events queue**: `/admin/collections/events?where[status][equals]=new`
 - **Fast review queue** (FACT-236, see above): `/review` — one draft at a time, sources/overlap/flags alongside, hotkeys.
 - **Review queue, generic list view** (stage 1, still works): `/admin/collections/articles?where[status][equals]=in_review`
-- **Source status**: `/admin/collections/sources` (sort by `consecutive_errors` to find a dead-lettered source)
+- **Source status** (FACT-345): `/admin/collections/sources` — sort by `consecutive_errors` to find a dead-lettered source; `last_http_status`/`last_fetched`/`last_stored`/`items_24h`/`items_7d` columns show the last poll's outcome and the 24h/7d item counts per source, written by `pollSource.ts` on every poll.
 
 ## Ingestion health without container logs (FACT-357)
 

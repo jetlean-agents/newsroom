@@ -53,15 +53,17 @@ function searchUrl(q: string, rows: number): string {
  */
 export async function fetchCkanItems(): Promise<ApiFetchResult> {
   const items: ApiItem[] = []
+  let httpStatus: number | undefined
 
   for (const query of CKAN_QUERIES) {
     const res = await fetchJson<CkanSearchResponse>(searchUrl(query.q, query.rows))
-    if (res.status === 'error') return { status: 'error', items: [], error: res.error }
+    if (res.status === 'error') return { status: 'error', items: [], error: res.error, httpStatus: res.httpStatus }
+    httpStatus = res.httpStatus
 
     const results = res.data?.result?.results ?? []
     const matches = query.orgIncludes ? results.filter((pkg) => pkg.organization?.title?.includes(query.orgIncludes!)) : results
     items.push(...matches.map(mapCkanPackageToItem))
   }
 
-  return { status: 'ok', items }
+  return { status: 'ok', items, httpStatus }
 }

@@ -155,15 +155,15 @@ Prozorro и data.gov.ua теперь **verified** (см. таблицу выше
 
 **Вывод:** на момент этого прогона пайплайн **не производит публикаций** (0 за всё время, не только за 24 ч). Причину не удалось установить без доступа к worker-логам/admin — варианты для Developer/DevOps проверить: (а) `worker`-контейнер на Dokploy не передеплоен с актуальным образом после FACT-236/287 (может всё ещё быть pre-ingest сборкой); (б) события не доходят до `independent_confirmation` (`EVENT_CONFIRMATION_MIN_SOURCES=2`) из-за `rada_news_uk`-регрессии и общей тонкости facts-покрытия в части рубрик (см. выше); (в) драфты создаются, но лежат в `/review` необработанными — без логина не видно. Это нужно проверить Developer/DevOps с реальным доступом (worker logs, admin login) — не определяется с моей стороны.
 
-### Чего не хватает в admin-журнале источников (для Developer, пункт 4 скоупа)
+### Admin-журнал источников (FACT-345, закрыто)
 
-Коллекция `src/collections/Sources.ts` сейчас хранит только `last_polled_at`, `last_success_at`, `last_error`, `consecutive_errors`. Этого недостаточно для требования скоупа «последний опрос, HTTP-статус, число новых items, ошибка, счётчики за 24ч и 7д»:
+`src/collections/Sources.ts` теперь хранит, помимо `last_polled_at`/`last_success_at`/`last_error`/`consecutive_errors`:
 
-- **Нет HTTP-статуса последнего опроса** (`pollSource.ts`'s `PollResult` не содержит и не персистит код ответа) — только `last_error` (текст) при неуспехе и пусто при успехе.
-- **Нет числа новых items на последний опрос** — `pollSource.ts` возвращает `fetched`/`stored` в `PollResult`, но эти числа никуда не пишутся в `sources`.
-- **Нет 24ч/7д счётчиков** ни в `sources`, ни отдельной агрегирующей коллекцией/view — чтобы получить «сколько items/events за 24ч по источнику», сейчас нужен прямой SQL-запрос к `source-items`/`events` by `fetched_at`/`first_seen_at`, в admin UI такого отчёта нет.
+- `last_http_status` — HTTP-статус последнего опроса (`304`/`200`/`503`/... или `null`, когда ответа не было вовсе — robots.txt disallow, timeout, DNS-ошибка).
+- `last_fetched` / `last_stored` — сколько items последний опрос вернул (до дедупа) и сколько реально сохранил (после дедупа).
+- `items_24h` / `items_7d` — сколько `source_items` этого источника сохранено за последние 24ч/7д (агрегат по `source-items.fetched_at`, пересчитывается на каждом опросе в `pollSource.ts`).
 
-Предложение (без кода — это задача Developer): добавить на `Sources` поля `last_http_status`, `last_fetched_count`, `items_24h`, `items_7d` (пересчитывать в `pollSource.ts`/отдельным cron-job'ом), и/или простую `admin.views` страницу-дашборд по `source-items`/`events`, агрегирующую по `source`+`fetched_at`.
+Все пять полей пишутся на каждый исход опроса (успех, `not_modified`, ошибка, robots.txt-блок) — см. `src/jobs/ingest/pollSource.ts`. Видны как колонки в `/admin/collections/sources` (`admin.defaultColumns`). Миграция: `src/migrations/20261109_200000_fact345_sources_status.ts`.
 
 ### Общее правило для источников со статусом `candidate`
 
