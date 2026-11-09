@@ -92,8 +92,8 @@ function buildLexicalBody(paragraphs: string[], whatIsKnown: string, whatIsUnkno
   return {
     root: {
       type: 'root',
-      direction: 'ltr',
-      format: '',
+      direction: 'ltr' as const,
+      format: '' as const,
       indent: 0,
       version: 1,
       children,
@@ -283,6 +283,7 @@ export async function draftFromEvent() {
         title: draft.title,
         lead: draft.lead,
         body: buildLexicalBody(draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown),
+        content_type: 'news',
         rubric: rubric.id,
         tags: tags.map((t) => t.id),
         event: event.id,
