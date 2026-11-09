@@ -360,6 +360,18 @@ export interface Article {
    */
   page_views?: number | null;
   /**
+   * True when the dictionary classifier (src/lib/ai/sensitivity.ts) matches a sensitive topic (war/safety, politics, medicine, accusations, deaths/disasters) in the current title/lead/body. Server-owned, recomputed on every save of an ai_assisted article. Routes AUTO_PUBLISH away from this article, but never blocks a manual editor publish.
+   */
+  sensitive?: boolean | null;
+  /**
+   * Which sensitive-topic categories matched. See `sensitive`.
+   */
+  sensitive_categories?: ('war_safety' | 'politics' | 'medicine' | 'accusations' | 'deaths_disasters')[] | null;
+  /**
+   * Actual USD cost of the AnthropicDraftProvider call that created this draft (AI_MODEL pricing × token usage, src/lib/ai/pricing.ts). Null for none/mock. Summed by src/lib/ai/spendGuard.ts for the AI_SPEND_LIMIT_USD guard.
+   */
+  ai_cost_usd?: number | null;
+  /**
    * Non-blocking: set when publishing if another article already covers this event.
    */
   duplicate_warning?: string | null;
@@ -694,6 +706,9 @@ export interface ArticlesSelect<T extends boolean = true> {
         id?: T;
       };
   page_views?: T;
+  sensitive?: T;
+  sensitive_categories?: T;
+  ai_cost_usd?: T;
   duplicate_warning?: T;
 }
 /**

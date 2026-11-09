@@ -24,14 +24,45 @@ export const INGEST_INCLUDE_CANDIDATES = process.env.INGEST_INCLUDE_CANDIDATES =
 export const EVENT_CONFIRMATION_MIN_SOURCES = Number(process.env.EVENT_CONFIRMATION_MIN_SOURCES || 2)
 /** AI draft-assist provider; "none" means the draft stays a plain source digest. */
 export const AI_PROVIDER = process.env.AI_PROVIDER || 'none'
-/** Model name passed to the AI provider (provider-specific; unused by `none`/`mock`). */
-export const AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-5-5'
-/** API key for the AI provider. Only read when AI_PROVIDER is a real provider (e.g. `anthropic`) — never logged. */
+/** Model name passed to the AI provider. Default is Haiku 5.5 — the cheapest current Claude model (Roman's 09.11 budget decision) — unused by `none`/`mock`. */
+export const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-5-5'
+/** API key for the AI provider. Only read as a fallback when Autoreg (AUTOREG_*) has no key for this site — never logged. */
 export const AI_API_KEY = process.env.AI_API_KEY || ''
 /** Draft n-gram/shingle overlap with its source texts above this ratio (0-1) blocks publication (originality_blocked). */
 export const ORIGINALITY_MAX_OVERLAP = Number(process.env.ORIGINALITY_MAX_OVERLAP || 0.5)
 /** Hard cap on how many new AI drafts draftFromEvent() creates per UTC calendar day, so the review queue can't fill with thin content faster than editors can clear it. */
 export const DRAFTS_PER_DAY = Number(process.env.DRAFTS_PER_DAY || 20)
+
+// --- Autoreg (FACT-337): the anthropic provider's key/spend source of truth ---
+/** Autoreg base URL, e.g. https://autoreg.bigear.uk — unset means Autoreg is not wired up; the anthropic provider falls back to AI_API_KEY. */
+export const AUTOREG_API_URL = process.env.AUTOREG_API_URL || ''
+/** Service token scoped `secrets:read usage:write`, granted access to AUTOREG_SITE_SLUG. Never logged. */
+export const AUTOREG_SERVICE_TOKEN = process.env.AUTOREG_SERVICE_TOKEN || ''
+/** This site's slug in Autoreg (registry.Site.slug), e.g. "news". */
+export const AUTOREG_SITE_SLUG = process.env.AUTOREG_SITE_SLUG || ''
+/** Specific secret id to fetch (e.g. 3, "Новини — Claude (sandbox)"); unset = fetch the first active `anthropic` key bound to the site. */
+export const AUTOREG_SECRET_ID = process.env.AUTOREG_SECRET_ID ? Number(process.env.AUTOREG_SECRET_ID) : null
+/** How long the fetched key is cached in memory before Autoreg is polled again (a vault lookup, not a hot path). */
+export const AUTOREG_KEY_TTL_SECONDS = Number(process.env.AUTOREG_KEY_TTL_SECONDS || 3600)
+
+/** Local same-process spend guard, independent of whatever Autoreg itself enforces on the key. Clamped to <= 10 per Roman's 09.11 budget decision — never trust a misconfigured higher value. */
+export const AI_SPEND_LIMIT_USD = Math.min(Number(process.env.AI_SPEND_LIMIT_USD || 10), 10)
+/** Rolling window `AI_SPEND_LIMIT_USD` applies over. */
+export const AI_SPEND_PERIOD: 'day' | 'week' | 'month' = (
+  ['day', 'week', 'month'] as const
+).includes(process.env.AI_SPEND_PERIOD as 'day' | 'week' | 'month')
+  ? (process.env.AI_SPEND_PERIOD as 'day' | 'week' | 'month')
+  : 'week'
+
+/**
+ * Sandbox-only auto-publish gate (FACT-337 scope item 4): when true, an
+ * `anthropic`-pipeline draft with no originality_blocked, no fact_flags and
+ * no sensitive-topic match publishes itself; everything else (including
+ * every draft whenever this is false) still needs a human in /review.
+ * Prod default is false — Roman's 09.11 decision: sandbox autopublish is
+ * allowed, prod autopublish needs a separate sign-off.
+ */
+export const AUTO_PUBLISH = process.env.AUTO_PUBLISH === 'true'
 
 export function robotsMeta(): string {
   return NOINDEX ? 'noindex, nofollow' : 'index, follow'

@@ -5,6 +5,7 @@ import { stableSlug } from '../lib/slug'
 import { plainTextFromBody } from '../lib/richText'
 import { maxOverlap } from '../lib/ai/originality'
 import { factCheckFlags } from '../lib/ai/factCheck'
+import { classifySensitivity } from '../lib/ai/sensitivity'
 import { ORIGINALITY_MAX_OVERLAP } from '../lib/env'
 import { SYSTEM_AUTHOR_EMAIL } from '../lib/ingest/systemAuthor'
 import type { Article, Tag, SourceItem } from '../payload-types'
@@ -92,6 +93,33 @@ async function recomputeOriginality(
 }
 
 /**
+ * Sensitivity flag (FACT-337 scope item 4): recomputed from the current
+ * title/lead/body on every save of an ai_assisted article, same server-owned
+ * treatment as originality/fact_flags above — a client-submitted `sensitive`
+ * can't turn it off, and an edit that removes the sensitive wording lifts
+ * it back off automatically. Dictionary-only here (no network call on every
+ * save); the AnthropicDraftProvider's own judgment from the same generation
+ * call is what `draftFromEvent.ts` additionally checks before ever routing
+ * a draft into auto-publish — this field is the durable, editor-visible
+ * record, not the only signal the auto-publish decision used.
+ */
+function recomputeSensitivity(data: Record<string, unknown>, originalDoc?: Record<string, unknown>) {
+  const aiAssisted = data.ai_assisted ?? originalDoc?.ai_assisted
+  if (!aiAssisted) {
+    data.sensitive = false
+    data.sensitive_categories = []
+    return
+  }
+  const title = (data.title ?? originalDoc?.title ?? '') as string
+  const lead = (data.lead ?? originalDoc?.lead ?? '') as string
+  const body = (data.body ?? originalDoc?.body) as Article['body'] | undefined
+  const text = [title, lead, plainTextFromBody(body)].filter(Boolean).join('\n')
+  const result = classifySensitivity(text)
+  data.sensitive = result.sensitive
+  data.sensitive_categories = result.categories
+}
+
+/**
  * Publication state machine: draft -> in_review -> published -> unpublished.
  * Only admin/editor may move a doc INTO "published", and only from "in_review" —
  * authors can take a draft to in_review but not past it.
@@ -109,8 +137,14 @@ function assertValidTransition(
 ) {
   if (nextStatus === prevStatus) return
   const role = req.user?.role
+  // Set only by the AUTO_PUBLISH job (src/jobs/ingest/draftFromEvent.ts) via
+  // the Local API `context` option — unreachable from the REST/GraphQL API,
+  // so this can never be a role-check bypass an outside caller can trigger.
+  // originalityBlocked is NOT bypassed: the job's own eligibility check and
+  // this hook's recompute must both agree before anything auto-publishes.
+  const isAutoPublish = req.context?.autoPublish === true
   if (nextStatus === 'published') {
-    if (role !== 'admin' && role !== 'editor') {
+    if (!isAutoPublish && role !== 'admin' && role !== 'editor') {
       throw new APIError('Only editor/admin can publish an article.', 403)
     }
     if (prevStatus !== 'in_review') {
@@ -250,6 +284,27 @@ export const Articles: CollectionConfig = {
     },
     { name: 'page_views', type: 'number', defaultValue: 0, admin: { readOnly: true, description: 'Used to rank "popular". Maintained by analytics + the recompute job.' } },
     {
+      name: 'sensitive',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: {
+        readOnly: true,
+        description: 'True when the dictionary classifier (src/lib/ai/sensitivity.ts) matches a sensitive topic (war/safety, politics, medicine, accusations, deaths/disasters) in the current title/lead/body. Server-owned, recomputed on every save of an ai_assisted article. Routes AUTO_PUBLISH away from this article, but never blocks a manual editor publish.',
+      },
+    },
+    {
+      name: 'sensitive_categories',
+      type: 'select',
+      hasMany: true,
+      admin: { readOnly: true, description: 'Which sensitive-topic categories matched. See `sensitive`.' },
+      options: ['war_safety', 'politics', 'medicine', 'accusations', 'deaths_disasters'],
+    },
+    {
+      name: 'ai_cost_usd',
+      type: 'number',
+      admin: { readOnly: true, description: 'Actual USD cost of the AnthropicDraftProvider call that created this draft (AI_MODEL pricing × token usage, src/lib/ai/pricing.ts). Null for none/mock. Summed by src/lib/ai/spendGuard.ts for the AI_SPEND_LIMIT_USD guard.' },
+    },
+    {
       name: 'duplicate_warning',
       type: 'text',
       admin: { readOnly: true, description: 'Non-blocking: set when publishing if another article already covers this event.' },
@@ -262,6 +317,7 @@ export const Articles: CollectionConfig = {
 
         enforceAiAssistedOwnership(req, data, originalDoc)
         await recomputeOriginality(req, data, originalDoc)
+        recomputeSensitivity(data, originalDoc)
 
         const prevStatus = originalDoc?.status
         assertValidTransition(req, prevStatus, data.status, data.originality_blocked)
@@ -276,8 +332,14 @@ export const Articles: CollectionConfig = {
         // still the ingest placeholder (an AI draft nobody has claimed yet),
         // swap it for that same real person too — a draft must never ship
         // with a system byline (AC item 7: "author = real editor who verified").
-        if (data.status === 'published' && prevStatus === 'in_review' && req.user) {
-          data.editor = req.user.id
+        // Same bookkeeping for the AUTO_PUBLISH path (no req.user — this is
+        // the ingestion job, not a logged-in session): the job passes the
+        // auto-editorial account's id via `context.autoEditorId` and that
+        // id plays the role req.user.id plays above.
+        const autoEditorId = req.context?.autoPublish === true ? (req.context.autoEditorId as number | undefined) : undefined
+        const publishingUserId = req.user?.id ?? autoEditorId
+        if (data.status === 'published' && prevStatus === 'in_review' && publishingUserId) {
+          data.editor = publishingUserId
           const author = data.author ?? originalDoc?.author
           const authorEmail =
             typeof author === 'object' && author
@@ -286,7 +348,7 @@ export const Articles: CollectionConfig = {
                 ? (await req.payload.findByID({ collection: 'users', id: author })).email
                 : undefined
           if (authorEmail === SYSTEM_AUTHOR_EMAIL) {
-            data.author = req.user.id
+            data.author = publishingUserId
           }
         }
 

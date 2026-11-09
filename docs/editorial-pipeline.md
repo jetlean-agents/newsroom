@@ -1,4 +1,4 @@
-# Ingestion, dedup, editorial pipeline (FACT-169, extended by FACT-236)
+# Ingestion, dedup, editorial pipeline (FACT-169, extended by FACT-236/FACT-337)
 
 ## Overview
 
@@ -9,15 +9,22 @@ config/sources.yaml (FACT-167 registry)
     -> ingest-poll-source (fetch + parse + store) -> SourceItems
       -> ingest-cluster-events (every 5m, simhash/title-hash dedup) -> Events
         -> ingest-draft-from-event (every 10m, confirmed events only,
-           priority-ranked, DRAFTS_PER_DAY-capped) -> AI_PROVIDER draft
-             -> draft Article (originality_overlap/fact_flags set)
-               -> /review queue -> author/editor rewrite+verify -> in_review
-                 -> editor publishes (blocked if originality_blocked)
+           priority-ranked, DRAFTS_PER_DAY- and rubric-cap-limited,
+           AI_SPEND_LIMIT_USD-guarded for AI_PROVIDER=anthropic)
+          -> none/mock -> draft Article (digest) -> /review -> author/editor
+             rewrite+verify -> in_review -> editor publishes
+          -> anthropic (key from Autoreg, FACT-337) -> in_review Article
+             (originality_overlap/fact_flags/sensitive set)
+               -> AUTO_PUBLISH=true & eligible -> published ("Редакція
+                  (автоматично)", AI-disclosed)
+               -> otherwise -> /review queue, same as any other in_review
 ```
 
-All of this is **off by default** (`INGEST_ENABLED=false`). Nothing it produces
-auto-publishes: every draft lands in the `draft` status and needs a human
-author and editor before it is ever public.
+`INGEST_ENABLED=false` keeps all of this off by default. With it on and
+`AI_PROVIDER` at `none`/`mock` (or `AUTO_PUBLISH=false`), nothing
+auto-publishes: every draft still needs a human author and editor before
+going public. `AUTO_PUBLISH=true` (sandbox only, FACT-337) is the one
+exception — see "Auto-publish gate" below for exactly what it requires.
 
 ## Sources (`config/sources.yaml` + `Sources` collection)
 
@@ -119,13 +126,124 @@ never a scraped full article body.
 - `mock` — deterministic stand-in for tests/e2e. Builds real UA paragraphs +
   lead + "Що відомо"/"Що невідомо" purely by templating the supplied facts —
   never invents a detail. `ai_assisted: true`.
-- `anthropic` — the real provider (Roman's 08.11 decision: Claude, $30/mo
-  budget). Calls the Messages API with a system prompt that forbids inventing
-  quotes/people/numbers/dates and requires every claim to cite a supplied
-  fact; expects strict JSON back. Only selected via `AI_PROVIDER=anthropic`,
-  and only once `AI_API_KEY` is set from Autoreg's secrets store (FACT-262) —
-  until then this throws a clear per-event error (skipped, not fatal to the
-  job) rather than silently calling out with no key.
+- `anthropic` — the real provider (Roman's 09.11 v3 decision: Claude, key
+  from Autoreg's secrets vault, $10/week budget, FACT-337). Calls the
+  Messages API with a system prompt that forbids inventing quotes/people/
+  numbers/dates, requires every claim to cite a supplied fact, and also asks
+  the same call to judge sensitive topics (see "Auto-publish gate" below);
+  expects strict JSON back. The key comes from `resolveAnthropicKey()`
+  (`src/lib/autoreg/client.ts`) — Autoreg first, `AI_API_KEY` only as a
+  fallback — and generateDraft throws a clear per-event error (skipped, not
+  fatal to the job) if neither source has one.
+
+### Autoreg integration (FACT-337 scope item 1)
+
+Contract: `docs/integration-secrets.md` in `jetlean-agents/autoreg`; Node/TS
+client here is `src/lib/autoreg/client.ts` (Python reference:
+`avto-traffic` PR #68 / `worker/src/avto_worker/autoreg.py`).
+
+- **Key fetch**: `GET /api/v1/secrets/<AUTOREG_SECRET_ID>/?site=<AUTOREG_SITE_SLUG>`
+  (or the list form if `AUTOREG_SECRET_ID` is unset), cached in memory only
+  for `AUTOREG_KEY_TTL_SECONDS` — never written to disk or logged. 401/403
+  (bad token), 404 (key not bound/inactive), and network/5xx/timeout all
+  degrade the same way: fall back to `AI_API_KEY` on a *first* resolution,
+  or keep the last working Autoreg key if a later refresh fails mid-run.
+  Never blocks the worker's own startup waiting on Autoreg.
+- **Usage reporting**: after every successful Anthropic call,
+  `POST /api/v1/usage/` with `secret_id`, `requests`, `input_tokens`,
+  `output_tokens`, `cost_usd`, `model` — best-effort, fire-and-forget; a
+  failure here is logged and dropped, never fails the draft itself. Only
+  sent when the key actually came from Autoreg (`source: "autoreg"`) — the
+  `env_fallback` case has no Autoreg-side key id to attribute spend to.
+- **Site lifecycle events — gap, not implemented**: the issue brief also
+  asks for an Autoreg event per collector run / published / sent-to-review /
+  error, "если в контракте есть такой эндпоинт". `docs/integration-secrets.md`
+  (FACT-264) only documents `/api/v1/secrets/`, `/api/v1/usage/`, and
+  `/api/v1/secrets/<id>/spend/` — there's no site-events endpoint today.
+  Flagged here rather than invented.
+
+### Cost and the local spend guard (FACT-337 scope item 2)
+
+`src/lib/ai/pricing.ts` prices Haiku 5.5 (the `AI_MODEL` default) at
+$0.10/$0.50 per million input/output tokens — a realistic ~800-input/
+~700-output draft call costs roughly **$0.0004**, well under the ~$0.04/
+article the issue brief's $10-week / 30-drafts-day budget implies (see
+`tests/unit/ai-pricing.test.ts`; re-verify against
+https://platform.claude.com/docs/en/about-claude/pricing before trusting
+this for a real budget decision — override via `AI_PRICE_INPUT_PER_MTOK`/
+`AI_PRICE_OUTPUT_PER_MTOK` if it's drifted).
+
+Each `anthropic` draft's actual cost is stored on `Article.ai_cost_usd`.
+`src/lib/ai/spendGuard.ts` sums that column over the `AI_SPEND_PERIOD`
+rolling window; once the total reaches `AI_SPEND_LIMIT_USD`, `draftFromEvent()`
+stops making new Anthropic calls for the rest of the window (`skippedSpendLimit`
+in its return value) — the site and every other `AI_PROVIDER` keep working.
+This is independent of whatever limit Autoreg itself enforces on the key
+(`GET /api/v1/secrets/<id>/spend/`, not currently checked here, see
+`AnthropicDraftProvider` TODO-free note in `src/lib/autoreg/client.ts
+getSpendPct()` which is wired for a future remote check) — a same-process
+guard that works even if Autoreg is unreachable or misconfigured.
+
+### Auto-publish gate (FACT-337 scope item 4)
+
+**Routing**: an `anthropic`-pipeline draft (the model writes a complete,
+publish-ready article — not a digest like `none`/`mock`) is created directly
+in `in_review`, skipping `draft`, since there's no separate "author writes it
+from scratch" step. `none`/`mock` drafts are unaffected and still start at
+`draft`.
+
+**Eligibility** for immediate self-publish, checked in `draftFromEvent.ts`
+right after creation, requires ALL of:
+
+- `AUTO_PUBLISH=true` (sandbox only — see `docs/env.md`);
+- not `originality_blocked` (anti-copypaste, unchanged from FACT-236);
+- `fact_flags` is empty (no unsupported number/date/name found);
+- not sensitive — **neither** signal alone decides this:
+  - the dictionary classifier (`src/lib/ai/sensitivity.ts`) on the drafted
+    text: war/safety, politics, medicine, accusations-against-people,
+    deaths/disasters (Ukrainian keyword lists, pure/no network, also what
+    `Articles.ts` recomputes into `Article.sensitive`/`sensitive_categories`
+    on every save, server-owned like originality/fact_flags above);
+  - **and** the same Anthropic call's own `sensitive`/`sensitiveCategories`
+    judgment from its JSON response (`draftProvider.ts`'s
+    `ANTHROPIC_SYSTEM_PROMPT`) — catches phrasing the keyword list can't.
+  - Either signal alone is enough to route to human review; only when BOTH
+    say "not sensitive" does the gate proceed.
+
+A draft that fails any of the above simply stays `in_review` for a human —
+exactly the issue brief's "чувствительные темы... идут в /review", not a
+separate queue.
+
+**Publishing without a human session**: the eligible draft is moved
+`in_review -> published` via a Local API `payload.update()` call carrying
+`context: { autoPublish: true, autoEditorId }` — a flag only reachable from
+this job's own Local API call, never from the REST/GraphQL API, so it can
+never be a role-check bypass an outside caller can trigger
+(`src/collections/Articles.ts assertValidTransition`). The
+`originality_blocked` check is **not** bypassed by this flag — the job's own
+eligibility check and the hook's independent recompute must both agree.
+Both `author` and `editor` are set to a dedicated, real, disclosed account —
+**"Редакція (автоматично)"** (`AUTO_EDITOR_EMAIL` in
+`src/lib/ingest/systemAuthor.ts`) — distinct from the ingest placeholder
+(`SYSTEM_AUTHOR_EMAIL`) that un-auto-published drafts still carry until a
+human claims them. `ai_disclosure` for an `anthropic`-pipeline draft reads
+"Цей матеріал повністю згенеровано AI (Claude)..." rather than the
+none/mock "...перевірений редактором перед публікацією" line, since an
+auto-published article by definition had no human review before going live.
+
+**Rhythm / rubric spread** (scope item 5): `DRAFT_FROM_EVENT` already runs
+every 10 minutes (`src/jobs/worker.ts`); reaching the epic's "≥30
+published/day" target needs `DRAFTS_PER_DAY` raised to >= 40 via env (see
+`docs/env.md`) once this is deployed with `AUTO_PUBLISH=true` — left as an
+env knob, not a code default, since it also governs the none/mock
+human-review flow. No single rubric can take more than ~40% of that daily
+budget (`rubricDailyCap()` in `draftFromEvent.ts`): once a rubric hits its
+share, its events stay `new` for a later run (or the next day's reset)
+instead of drafting into an already-full rubric — this doesn't consume the
+`DRAFTS_PER_DAY` budget, only the attempt. One draft per event is already
+guaranteed by the existing dedup pipeline (an event flips to `drafted` and is
+excluded from the `status: new` query), so "без повторов одного события"
+needs no extra code here.
 
 **Anti-copypaste** (`src/lib/ai/originality.ts` + `recomputeOriginality()` in
 `src/collections/Articles.ts`): for `ai_assisted` articles, every save

@@ -36,8 +36,12 @@ DATABASE_URL=... PAYLOAD_SECRET=... INGEST_ENABLED=true npm run worker
 ```
 
 Recommended sandbox values: `INGEST_ENABLED=true`, `INGEST_INCLUDE_CANDIDATES=false` (only
-`config/sources.yaml`'s `verified` sources autopoll), `EVENT_CONFIRMATION_MIN_SOURCES=2`,
-`AI_PROVIDER=none` (no `AI_API_KEY` without Roman's sign-off — see epic FACT-164).
+`config/sources.yaml`'s `verified` sources autopoll), `EVENT_CONFIRMATION_MIN_SOURCES=2`.
+Turning on the real autofill pipeline (Roman's 09.11 v3 decision, FACT-337/FACT-341) is a
+separate, explicit step: `AI_PROVIDER=anthropic`, `AUTOREG_API_URL`/`AUTOREG_SERVICE_TOKEN`/
+`AUTOREG_SITE_SLUG`/`AUTOREG_SECRET_ID` pointed at the real Autoreg deployment, `AUTO_PUBLISH=true`
+(sandbox only), `DRAFTS_PER_DAY>=40` — see `docs/editorial-pipeline.md` and `docs/env.md`. Until
+then, stay at `AI_PROVIDER=none`, `AUTO_PUBLISH=false`.
 
 On startup the worker syncs `config/sources.yaml` into the `sources` collection (idempotent,
 re-run on every worker restart and every 15 minutes), then polls each enabled source on its own
@@ -127,7 +131,8 @@ created, only the domain/app config inside Dokploy (FACT-170).
 3. Swap MinIO for Cloudflare R2 (`S3_*` already provider-agnostic — only the env values change,
    no code change) per the team-wide media-storage rule; ops sets the bucket and keys, not
    agents.
-4. Decide on `AI_PROVIDER`/`AI_API_KEY` only with Roman's explicit sign-off (epic FACT-164) —
-   sandbox stays `none`.
+4. Decide on `AI_PROVIDER`/`AUTO_PUBLISH` only with Roman's explicit sign-off (epic FACT-164) —
+   sandbox autopublish is approved (09.11), prod is not. `AUTO_PUBLISH` must stay `false` in prod
+   regardless of what sandbox uses.
 5. A real scheduled Postgres backup — sandbox has none (data is reproducible from migrations +
    seed + the worker's next ingestion cycle).

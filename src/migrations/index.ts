@@ -3,6 +3,7 @@ import * as migration_20261107_120000_search_vector from './20261107_120000_sear
 import * as migration_20261107_220653_ingest_pipeline from './20261107_220653_ingest_pipeline';
 import * as migration_20261108_114909_add_article_content_type_featured from './20261108_114909_add_article_content_type_featured';
 import * as migration_20261108_161318_fact236_ai_draft_fields from './20261108_161318_fact236_ai_draft_fields';
+import * as migration_20261109_170000_fact337_autoreg_sensitivity_spend from './20261109_170000_fact337_autoreg_sensitivity_spend';
 
 export const migrations = [
   {
@@ -29,5 +30,10 @@ export const migrations = [
     up: migration_20261108_161318_fact236_ai_draft_fields.up,
     down: migration_20261108_161318_fact236_ai_draft_fields.down,
     name: '20261108_161318_fact236_ai_draft_fields'
+  },
+  {
+    up: migration_20261109_170000_fact337_autoreg_sensitivity_spend.up,
+    down: migration_20261109_170000_fact337_autoreg_sensitivity_spend.down,
+    name: '20261109_170000_fact337_autoreg_sensitivity_spend',
   },
 ];
