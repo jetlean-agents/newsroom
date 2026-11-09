@@ -192,6 +192,11 @@ export async function draftFromEvent() {
   let skippedError = 0
   let skippedSpendLimit = 0
   let skippedRubricCap = 0
+  // Counts per error message (FACT-362 AC1: "skippedError с причиной") —
+  // provider failures group by message (e.g. rate limit vs. malformed
+  // response) so the funnel report can tell *why* drafting failed, not just
+  // how many times.
+  const skippedErrorReasons: Record<string, number> = {}
 
   for (const event of rankedEvents) {
     if (budgetRemaining <= 0) {
@@ -226,6 +231,8 @@ export async function draftFromEvent() {
     } catch (err) {
       console.error(`[draftFromEvent] provider "${provider.name}" failed for event ${event.id}:`, err)
       skippedError++
+      const reason = err instanceof Error ? err.message : String(err)
+      skippedErrorReasons[reason] = (skippedErrorReasons[reason] ?? 0) + 1
       continue
     }
 
@@ -336,6 +343,7 @@ export async function draftFromEvent() {
     autoPublished,
     skippedBudget,
     skippedError,
+    skippedErrorReasons,
     skippedSpendLimit,
     skippedRubricCap,
     provider: provider.name,

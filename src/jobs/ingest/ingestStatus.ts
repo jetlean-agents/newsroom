@@ -7,6 +7,21 @@ interface PgBossQueueRow {
   count: number
 }
 
+/** One completed/failed `ingest-draft-from-event` run, as persisted by pg-boss into `output` (see worker.ts). */
+export interface DraftFunnelRun {
+  completedAt: string | null
+  state: string
+  eventsConsidered: number | null
+  drafted: number | null
+  autoPublished: number | null
+  skippedBudget: number | null
+  skippedError: number | null
+  skippedErrorReasons: Record<string, number> | null
+  skippedSpendLimit: number | null
+  skippedRubricCap: number | null
+  provider: string | null
+}
+
 export interface IngestStatus {
   sources: {
     total: number
@@ -20,6 +35,24 @@ export interface IngestStatus {
     queues: PgBossQueueRow[]
     failedLast24h: number
     lastDispatchAt: string | null
+  }
+  /**
+   * events → draft → publish funnel (FACT-362 AC1) — makes the admin able to
+   * tell where the pipeline is losing throughput without container logs.
+   */
+  funnel: {
+    events: {
+      /** `status=new AND independent_confirmation=true` — ready for draftFromEvent(), not yet picked up. */
+      pendingConfirmed: number
+    }
+    /** Last pg-boss runs of `ingest-draft-from-event`, most recent first. */
+    draftFromEventRuns: DraftFunnelRun[]
+    /** How many stored articles each gate currently flags, independent of any single run. */
+    articlesBlockedBy: {
+      isSensitive: number
+      originalityBlocked: number
+      factFlags: number
+    }
   }
 }
 
@@ -65,8 +98,67 @@ export async function getIngestStatus(): Promise<IngestStatus> {
      ) t`,
   )
 
+  const pendingConfirmed = await payload
+    .count({
+      collection: 'events',
+      where: { and: [{ status: { equals: 'new' } }, { independent_confirmation: { equals: true } }] },
+    })
+    .then((r) => r.totalDocs)
+
+  // Most recent `ingest-draft-from-event` runs, job and archive combined (same
+  // reason as the pgboss.queues query above): the output column is whatever
+  // draftFromEvent() returned — see worker.ts — including `completed` runs
+  // that drafted nothing as well as `failed` ones.
+  const { rows: draftFromEventRows } = await pool.query<{
+    completedon: string | null
+    state: string
+    output: Record<string, unknown> | null
+  }>(
+    `select completedon, state, output
+     from (
+       select completedon, state, output from pgboss.job where name = 'ingest-draft-from-event'
+       union all
+       select completedon, state, output from pgboss.archive where name = 'ingest-draft-from-event'
+     ) recent
+     order by completedon desc nulls last
+     limit 20`,
+  )
+  const draftFromEventRuns: DraftFunnelRun[] = draftFromEventRows.map((row) => {
+    const output = row.output ?? {}
+    return {
+      completedAt: row.completedon,
+      state: row.state,
+      eventsConsidered: (output.eventsConsidered as number) ?? null,
+      drafted: (output.drafted as number) ?? null,
+      autoPublished: (output.autoPublished as number) ?? null,
+      skippedBudget: (output.skippedBudget as number) ?? null,
+      skippedError: (output.skippedError as number) ?? null,
+      skippedErrorReasons: (output.skippedErrorReasons as Record<string, number>) ?? null,
+      skippedSpendLimit: (output.skippedSpendLimit as number) ?? null,
+      skippedRubricCap: (output.skippedRubricCap as number) ?? null,
+      provider: (output.provider as string) ?? null,
+    }
+  })
+
+  const [isSensitiveCount, originalityBlockedCount, factFlagsRows] = await Promise.all([
+    payload.count({ collection: 'articles', where: { sensitive: { equals: true } } }).then((r) => r.totalDocs),
+    payload.count({ collection: 'articles', where: { originality_blocked: { equals: true } } }).then((r) => r.totalDocs),
+    // `fact_flags` is an array field (own child table) — no direct "non-empty" Payload
+    // `where`, so count distinct parents with at least one row via raw SQL.
+    pool.query<{ count: number }>(`select count(distinct "_parent_id")::int as count from "articles_fact_flags"`),
+  ])
+
   return {
     sources: { total, verifiedEnabled, polledLast24h, withErrors },
     pgboss: { queues, failedLast24h, lastDispatchAt: dispatchRows[0]?.last_dispatch_at ?? null },
+    funnel: {
+      events: { pendingConfirmed },
+      draftFromEventRuns,
+      articlesBlockedBy: {
+        isSensitive: isSensitiveCount,
+        originalityBlocked: originalityBlockedCount,
+        factFlags: factFlagsRows.rows[0]?.count ?? 0,
+      },
+    },
   }
 }

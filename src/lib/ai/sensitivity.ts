@@ -40,8 +40,41 @@ const CATEGORY_KEYWORDS: Record<SensitivityCategory, string[]> = {
   ],
 }
 
+/**
+ * Keywords that are themselves real stems but whose match is a *different*,
+ * non-sensitive sense of the word when a specific other word sits just
+ * before it in the same sentence — e.g. "банківські операції" (banking
+ * transactions) vs. a medical "операція". Word-boundary matching alone
+ * can't tell these apart (both are the same whole word), so this is a
+ * narrow, explicit exception list rather than a general heuristic.
+ */
+const EXCLUDE_PRECEDING: Partial<Record<SensitivityCategory, Record<string, string[]>>> = {
+  medicine: {
+    'операці': ['банківськ', 'фінансов', 'валютн', 'торговельн', 'бухгалтерськ', 'біржов'],
+  },
+}
+
+const CONTEXT_WINDOW = 40
+
 function normalize(text: string): string {
   return text.toLowerCase().normalize('NFKC')
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Indices where `keyword` occurs as a word-start in `haystack` — i.e. not
+ * immediately preceded by another letter/digit. Keywords here are stems
+ * (e.g. "безпек" is meant to match "безпека", "безпечний", ...), so only the
+ * *leading* edge is constrained: that's enough to stop "безпек" from firing
+ * inside "кібербезпека" or "дрон" inside "адронний" (hadron), while still
+ * matching every real inflection of the stem.
+ */
+function keywordStartIndices(haystack: string, keyword: string): number[] {
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(keyword)}`, 'gu')
+  return [...haystack.matchAll(re)].map((m) => m.index as number)
 }
 
 export type SensitivityResult = {
@@ -54,7 +87,18 @@ export function classifySensitivity(text: string): SensitivityResult {
   const haystack = normalize(text)
   const categories: SensitivityCategory[] = []
   for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS) as [SensitivityCategory, string[]][]) {
-    if (keywords.some((kw) => haystack.includes(kw))) categories.push(category)
+    const excludeMap = EXCLUDE_PRECEDING[category]
+    const matched = keywords.some((kw) => {
+      const indices = keywordStartIndices(haystack, kw)
+      if (!indices.length) return false
+      const excludeWords = excludeMap?.[kw]
+      if (!excludeWords?.length) return true
+      return indices.some((idx) => {
+        const context = haystack.slice(Math.max(0, idx - CONTEXT_WINDOW), idx)
+        return !excludeWords.some((ex) => context.includes(ex))
+      })
+    })
+    if (matched) categories.push(category)
   }
   return { sensitive: categories.length > 0, categories }
 }

@@ -71,6 +71,10 @@ async function main() {
   await boss.work(DRAFT_FROM_EVENT, async () => {
     const result = await draftFromEvent()
     console.log('[ingest-draft-from-event]', result)
+    // Returned (not just logged) so pg-boss persists it as the job's `output`
+    // (FACT-362 AC1) — the funnel becomes visible over `GET /api/ingest/status`
+    // without container log/exec access, same gap FACT-357 closed for sources.
+    return result
   })
 
   // Sync the registry into `sources` every 15 minutes (cheap, idempotent) so an
