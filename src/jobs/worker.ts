@@ -1,7 +1,7 @@
 import PgBoss from 'pg-boss'
 import { recomputePopular } from './recomputePopular'
 import { syncSources } from './ingest/syncSources'
-import { pollSource } from './ingest/pollSource'
+import { handlePollSourceJob } from './ingest/pollSource'
 import { clusterEvents } from './ingest/clusterEvents'
 import { draftFromEvent } from './ingest/draftFromEvent'
 import { dispatchDuePolls } from './ingest/dispatchDuePolls'
@@ -46,15 +46,13 @@ async function main() {
   await boss.work(
     POLL_SOURCE,
     // dead-letter: pg-boss retries a failed job up to 3x with backoff before giving up on it.
+    // No `batchSize` here, so pg-boss 9 hands the handler one job object, not an array
+    // (batched arrays only became the default in pg-boss 10) — handlePollSourceJob takes a single job.
     { retryLimit: 3, retryBackoff: true },
-    async (jobs) => {
+    async (job) => {
       const payload = await getPayloadClient()
-      for (const job of jobs) {
-        const { sourceId } = job.data as { sourceId: number }
-        const source = await payload.findByID({ collection: 'sources', id: sourceId })
-        const result = await pollSource(source)
-        console.log('[ingest-poll-source]', result)
-      }
+      const result = await handlePollSourceJob(job, payload)
+      console.log('[ingest-poll-source]', result)
     },
   )
 

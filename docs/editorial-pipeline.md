@@ -344,6 +344,25 @@ deep-link-filter pattern FACT-168 used for the articles review queue:
 - **Review queue, generic list view** (stage 1, still works): `/admin/collections/articles?where[status][equals]=in_review`
 - **Source status**: `/admin/collections/sources` (sort by `consecutive_errors` to find a dead-lettered source)
 
+## Ingestion health without container logs (FACT-357)
+
+Dokploy sandbox gives agents no `docker logs`/`exec` access, so a crashing
+worker handler is otherwise invisible. `GET /api/ingest/status` (admin-JWT
+only — `Authorization: JWT <token>` from `/api/users/login`, or the Payload
+admin session cookie) returns:
+
+- `sources`: total/verified-enabled/polled-in-last-24h/with-errors counts.
+- `pgboss`: per-queue job counts by state over the last 24h (`job` + already
+  `archive`d rows), `failedLast24h`, and `lastDispatchAt` (last
+  `ingest-dispatch-polls` tick — a stale value means the worker itself isn't
+  running, not just one source failing).
+
+See `src/jobs/ingest/ingestStatus.ts`. Any handler-level crash in
+`ingest-poll-source` (bad job payload, a bug before `pollSource` even runs)
+also now writes `sources.last_error`/`consecutive_errors` itself
+(`handlePollSourceJob` in `src/jobs/ingest/pollSource.ts`), instead of only
+existing in pg-boss's own `retry`/`failed` job state.
+
 ## Running the worker locally
 
 ```
