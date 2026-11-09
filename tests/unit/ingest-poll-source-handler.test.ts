@@ -49,6 +49,33 @@ describe('handlePollSourceJob (FACT-357)', () => {
     })
   })
 
+  it('does not touch sources on a mid-retry crash — only once pg-boss has no attempts left', async () => {
+    const findByID = vi.fn().mockRejectedValue(new Error('boom'))
+    const update = vi.fn().mockResolvedValue(undefined)
+    const payload = { findByID, update }
+    const midRetryJob = { data: { sourceId: 42 }, retrycount: 1, retrylimit: 3 }
+
+    await expect(handlePollSourceJob(midRetryJob, payload as any)).rejects.toThrow('boom')
+
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('records the crash once retrycount reaches retrylimit (final attempt)', async () => {
+    const findByID = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ id: 42, consecutive_errors: 1 })
+    const update = vi.fn().mockResolvedValue(undefined)
+    const payload = { findByID, update }
+    const finalAttemptJob = { data: { sourceId: 42 }, retrycount: 3, retrylimit: 3 }
+
+    await expect(handlePollSourceJob(finalAttemptJob, payload as any)).rejects.toThrow('boom')
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ consecutive_errors: 2 }) }),
+    )
+  })
+
   it('auto-disables the source once handler crashes hit the consecutive-error ceiling', async () => {
     const findByID = vi
       .fn()
