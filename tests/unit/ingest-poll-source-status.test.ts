@@ -119,7 +119,8 @@ describe('pollSource: status + recent-count fields (FACT-345)', () => {
     expect(data.last_stored).toBe(0)
   })
 
-  it('when robots.txt blocks the poll, writes a null status and zeroed counts without calling fetchFeed', async () => {
+  it('when robots.txt blocks the poll, writes a null status and still refreshes the 24h/7d counters', async () => {
+    mockCount.mockResolvedValueOnce({ totalDocs: 5 }).mockResolvedValueOnce({ totalDocs: 11 })
     vi.mocked(isAllowedByRobots).mockResolvedValueOnce(false)
 
     const result = await pollSource(makeSource())
@@ -130,5 +131,7 @@ describe('pollSource: status + recent-count fields (FACT-345)', () => {
     expect(data.last_http_status).toBeNull()
     expect(data.last_fetched).toBe(0)
     expect(data.last_stored).toBe(0)
+    expect(data.items_24h).toBe(5)
+    expect(data.items_7d).toBe(11)
   })
 })
