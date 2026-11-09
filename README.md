@@ -44,3 +44,10 @@ npm run test:e2e    # playwright — homepage + article page smoke test
 `npm run seed` creates 3 rubrics, 3 articles (clearly marked "Демо-матеріал" in their own
 text, not real news), and 3 page templates (editorial policy / AI disclosure / contacts)
 with `[TBD]` placeholders instead of invented real contact details.
+
+### Design (v3)
+
+`design/` holds the v3 portal design (FACT-339): tokens (`design/tokens.css`), HTML prototypes
+and PNG mockups for home / rubric / tag / article / search / 404 at 390 and 1440 px, 12 rubric
+cover illustrations (`design/covers/*.svg`, fallback when an article has no licensed photo) and a
+placeholder logo. Implementation rules for the frontend: `design/README.md`.
