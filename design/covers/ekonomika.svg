@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" role="img" aria-labelledby="t-ekonomika">
+  <title id="t-ekonomika">Обкладинка рубрики «Економіка»: стовпці зростання й лінія тренду</title>
+  <clipPath id="c-ekonomika"><rect width="1200" height="675"/></clipPath>
+  <rect width="1200" height="675" fill="#0E6E5C"/>
+  <g clip-path="url(#c-ekonomika)">
+  <rect x="270" y="447.5" width="80" height="120" rx="6" fill="#6BA89C"/>
+  <rect x="380" y="397.5" width="80" height="170" rx="6" fill="#6BA89C"/>
+  <rect x="490" y="417.5" width="80" height="150" rx="6" fill="#6BA89C"/>
+  <rect x="600" y="337.5" width="80" height="230" rx="6" fill="#6BA89C"/>
+  <rect x="710" y="287.5" width="80" height="280" rx="6" fill="#DDF0EA"/>
+  <rect x="820" y="307.5" width="80" height="260" rx="6" fill="#DDF0EA"/>
+  <rect x="930" y="187.5" width="80" height="380" rx="6" fill="#FFFFFF"/>
+  <polyline points="310,407.5 420,357.5 530,377.5 640,297.5 750,247.5 860,267.5 970,147.5" fill="none" stroke="#0E4F4A" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="0" y="567.5" width="1200" height="107.5" fill="#0E4F4A"/>
+  </g>
+</svg>

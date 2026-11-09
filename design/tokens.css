@@ -1,0 +1,187 @@
+/*
+ * Новини України (робоча назва) — дизайн-токени v3 (FACT-339)
+ * Єдине джерело правди для кольору, типографіки, сітки й відступів.
+ * Developer: імпортуйте цей файл першим (globals.css → @import) і використовуйте
+ * лише var(--…); жодних «сирих» hex у компонентах.
+ *
+ * Шрифти (обидва SIL OFL 1.1, кирилиця включно з ґ є і ї ’):
+ *   Literata   — заголовки й текст статті  (googlefonts/literata)
+ *   Golos Text — інтерфейс, стрічка, мета   (googlefonts/golos-text)
+ * У Next.js підключати через next/font/google з subsets ['cyrillic','latin'],
+ * variable: '--font-serif' / '--font-sans' — значення нижче є fallback-стеком.
+ */
+
+:root {
+  /* ── Типографіка ───────────────────────────────────────────── */
+  --font-serif: 'Literata', 'Georgia', 'Times New Roman', serif;
+  --font-sans: 'Golos Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Шкала (px → rem при root 16px), класична типографська + 30 для мобільного h1 */
+  --fs-12: 0.75rem;
+  --fs-14: 0.875rem;
+  --fs-16: 1rem;
+  --fs-18: 1.125rem;
+  --fs-21: 1.3125rem;
+  --fs-24: 1.5rem;
+  --fs-30: 1.875rem;
+  --fs-36: 2.25rem;
+  --fs-48: 3rem;
+  --fs-60: 3.75rem;
+
+  --lh-tight: 1.12;   /* великі заголовки */
+  --lh-head: 1.24;    /* заголовки карток */
+  --lh-ui: 1.4;       /* інтерфейс, sans */
+  --lh-read: 1.62;    /* текст статті, serif */
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* Семантичні ролі тексту (mobile-first; desktop-оверрайди нижче) */
+  --t-display: var(--fs-30);      /* топ-матеріал головної, h1 статті */
+  --t-h2: var(--fs-24);           /* заголовки секцій, «Головне» */
+  --t-card: var(--fs-18);         /* заголовок картки */
+  --t-feed: var(--fs-16);         /* заголовок у стрічці */
+  --t-lead: var(--fs-18);         /* лід */
+  --t-body: var(--fs-18);         /* текст статті */
+  --t-ui: var(--fs-16);
+  --t-meta: var(--fs-14);
+  --t-micro: var(--fs-12);
+  --measure: 38em;                /* довжина рядка тексту статті ≈ 68 знаків */
+
+  /* ── Відступи (база 4px) ───────────────────────────────────── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* ── Сітка ─────────────────────────────────────────────────── */
+  --grid-cols: 4;
+  --grid-gutter: 16px;
+  --grid-margin: 16px;
+  --container: 1280px;
+
+  /* ── Форма ─────────────────────────────────────────────────── */
+  --radius-s: 3px;    /* мітки, теги, поля */
+  --radius-m: 6px;    /* зображення, блок «Джерела» */
+  --radius-pill: 999px; /* лише перемикачі/фільтри */
+  --border: 1px;
+  --focus-ring: 0 0 0 2px var(--paper), 0 0 0 4px var(--focus);
+
+  /* ── Колір: світла тема (за замовчуванням) ─────────────────── */
+  --paper: #FFFFFF;        /* фон сторінки */
+  --wash: #EEF2F1;         /* підкладка блоків (Джерела, пошук, «Пояснюємо») */
+  --line: #D5DDDD;         /* лінії-розділювачі */
+  --line-strong: #7A8D95;  /* межі полів і чипів (3.5:1 — WCAG 1.4.11) */
+  --ink: #0F2A33;          /* «чорнило»: заголовки, шапка, основний текст (15.0:1) */
+  --text: #0F2A33;
+  --muted: #4A5A63;        /* мета, кредити, дати (7.2:1 на paper, 6.3:1 на wash) */
+  --masthead-bg: #0F2A33;  /* «смуга чорнила» — шапка й футер */
+  --on-ink: #FFFFFF;       /* текст на шапці */
+  --on-ink-muted: #B9CBCE; /* другорядний текст на шапці (8.9:1 на ink) */
+  --link: #0F2A33;         /* посилання = чорнило + підкреслення */
+  --link-hover: #1B5E8C;
+  --focus: #1B6FE0;
+  --signal: #C8281E;       /* «Терміново», «Наживо» — лише для цього (5.6:1) */
+  --on-signal: #FFFFFF;
+  --mark: #FFE8A3;         /* підсвітка збігу в пошуку (текст ink, 13:1) */
+  --success: #1E6B3A;
+  --danger: #B3261E;
+
+  /* Кольори рубрик: --r-<slug> — текст мітки на paper (≥ 5.4:1),
+     --r-<slug>-tint — фон обкладинки/підкладки. Slug = RUBRICS_CONFIG. */
+  --r-podii: #B3261E;        --r-podii-tint: #F9E3DF;
+  --r-polityka: #2B3FA0;     --r-polityka-tint: #E2E6F8;
+  --r-viina: #4F5B2E;        --r-viina-tint: #E8EBDC;
+  --r-ekonomika: #0E6E5C;    --r-ekonomika-tint: #DDF0EA;
+  --r-groshi: #85640A;       --r-groshi-tint: #F6EDCF;
+  --r-svit: #1D5F8F;         --r-svit-tint: #DEEBF5;
+  --r-suspilstvo: #7A4A26;   --r-suspilstvo-tint: #F1E6DC;
+  --r-tekhnolohii: #5B3FB5;  --r-tekhnolohii-tint: #E9E4F8;
+  --r-zdorovia: #0F6F7A;     --r-zdorovia-tint: #DCEFF1;
+  --r-sport: #B0450A;        --r-sport-tint: #FAE6D8;
+  --r-kultura: #A3245E;      --r-kultura-tint: #F7E0EA;
+  --r-rehiony: #3D6B1F;      --r-rehiony-tint: #E3EFD9;
+
+  /* Фон обкладинок і шапок рубрик — однаковий в обох темах (збігається з фоном SVG-обкладинки).
+     Білий текст на ньому ≥ 5.4:1. */
+  --r-podii-cover: #B3261E;
+  --r-polityka-cover: #2B3FA0;
+  --r-viina-cover: #4F5B2E;
+  --r-ekonomika-cover: #0E6E5C;
+  --r-groshi-cover: #85640A;
+  --r-svit-cover: #1D5F8F;
+  --r-suspilstvo-cover: #7A4A26;
+  --r-tekhnolohii-cover: #5B3FB5;
+  --r-zdorovia-cover: #0F6F7A;
+  --r-sport-cover: #B0450A;
+  --r-kultura-cover: #A3245E;
+  --r-rehiony-cover: #3D6B1F;
+
+  color-scheme: light;
+}
+
+/* ── Desktop-ролі тексту й сітка ─────────────────────────────── */
+@media (min-width: 768px) {
+  :root {
+    --grid-cols: 8;
+    --grid-gutter: 24px;
+    --grid-margin: 32px;
+    --t-display: var(--fs-36);
+    --t-h2: var(--fs-24);
+    --t-lead: var(--fs-21);
+  }
+}
+@media (min-width: 1200px) {
+  :root {
+    --grid-cols: 12;
+    --grid-gutter: 24px;
+    --grid-margin: 80px;
+    --t-display: var(--fs-48);
+    --t-card: var(--fs-21);
+    --t-feed: var(--fs-16);
+    --t-body: var(--fs-18);
+  }
+}
+
+/* ── Темна тема ──────────────────────────────────────────────── */
+/* Вмикається атрибутом <html data-theme="dark">. Інлайн-скрипт у <head> ставить його
+   з localStorage або prefers-color-scheme до першого рендеру (див. README). */
+:root[data-theme='dark'] {
+  --paper: #0B1F26;
+  --wash: #12303A;
+  --line: #24434D;
+  --line-strong: #5F818A;
+  --ink: #E3ECEC;
+  --masthead-bg: #061419;
+  --text: #D5E1E2;
+  --muted: #9DB0B5;
+  --on-ink: #FFFFFF;
+  --on-ink-muted: #A9BEC2;
+  --link: #E3ECEC;
+  --link-hover: #8CCBEB;
+  --focus: #6AA8FF;
+  --signal: #FF6B5E;
+  --on-signal: #0B1F26;
+  --mark: #6B5A1A;
+  --danger: #FF8A80;
+  --success: #7BD39A;
+  --r-podii: #FF8F7A;        --r-podii-tint: #3A1F1B;
+  --r-polityka: #A7B3FF;     --r-polityka-tint: #1D2550;
+  --r-viina: #BCC78E;        --r-viina-tint: #262C17;
+  --r-ekonomika: #5FD0B5;    --r-ekonomika-tint: #0E332B;
+  --r-groshi: #E7C25A;       --r-groshi-tint: #352B0E;
+  --r-svit: #85C0EC;         --r-svit-tint: #102D44;
+  --r-suspilstvo: #DDAA82;   --r-suspilstvo-tint: #33241A;
+  --r-tekhnolohii: #BBA9FF;  --r-tekhnolohii-tint: #261C4A;
+  --r-zdorovia: #63CCD8;     --r-zdorovia-tint: #0D3136;
+  --r-sport: #FFA56E;        --r-sport-tint: #3A2312;
+  --r-kultura: #FF92BC;      --r-kultura-tint: #3B1828;
+  --r-rehiony: #A2D47D;      --r-rehiony-tint: #1C2F12;
+  color-scheme: dark;
+}
