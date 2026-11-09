@@ -27,7 +27,7 @@ const MAX_CONSECUTIVE_ERRORS = 5
  * without container log access (FACT-357).
  */
 export async function handlePollSourceJob(
-  job: { data: unknown },
+  job: { data: unknown; retrycount?: number; retrylimit?: number },
   payload: Awaited<ReturnType<typeof getPayload>>,
 ): Promise<PollResult> {
   const { sourceId } = job.data as { sourceId: number }
@@ -36,7 +36,13 @@ export async function handlePollSourceJob(
     return await pollSource(source)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    await recordHandlerCrash(payload, sourceId, message)
+    // pg-boss retries this job up to retrylimit times (worker.ts); only record once pg-boss
+    // won't try again, so one flaky attempt doesn't burn through consecutive_errors 4x
+    // (retrycount/retrylimit need `includeMetadata: true` on boss.work, set in worker.ts).
+    const isFinalAttempt = job.retrycount == null || job.retrylimit == null || job.retrycount >= job.retrylimit
+    if (isFinalAttempt) {
+      await recordHandlerCrash(payload, sourceId, message)
+    }
     throw err
   }
 }

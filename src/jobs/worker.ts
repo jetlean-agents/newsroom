@@ -48,7 +48,9 @@ async function main() {
     // dead-letter: pg-boss retries a failed job up to 3x with backoff before giving up on it.
     // No `batchSize` here, so pg-boss 9 hands the handler one job object, not an array
     // (batched arrays only became the default in pg-boss 10) — handlePollSourceJob takes a single job.
-    { retryLimit: 3, retryBackoff: true },
+    // `includeMetadata` adds retrycount/retrylimit to that job object, so the handler can tell
+    // a mid-retry crash from the final attempt before writing to sources.consecutive_errors.
+    { retryLimit: 3, retryBackoff: true, includeMetadata: true },
     async (job) => {
       const payload = await getPayloadClient()
       const result = await handlePollSourceJob(job, payload)
