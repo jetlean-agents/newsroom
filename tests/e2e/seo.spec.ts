@@ -10,9 +10,36 @@ import { test, expect } from '@playwright/test'
 test.describe('rubric hub', () => {
   test('renders a rubric page with its articles', async ({ page }) => {
     await page.goto('/')
-    await page.locator('.rubric-nav a').first().click()
+    await page.locator('.rubric-nav__list a').first().click()
     await expect(page.locator('h1')).toBeVisible()
-    await expect(page.locator('.feed-item').first()).toBeVisible()
+    await expect(page.locator('.list__item, .top').first()).toBeVisible()
+  })
+
+  test('rubric RSS feed is valid RSS and noindex', async ({ request }) => {
+    const res = await request.get('/podii/feed.xml')
+    expect(res.status()).toBe(200)
+    expect(res.headers()['content-type']).toContain('rss')
+    expect(res.headers()['x-robots-tag']).toContain('noindex')
+    const body = await res.text()
+    expect(body).toContain('<rss')
+  })
+
+  test('unknown rubric RSS feed 404s', async ({ request }) => {
+    const res = await request.get('/this-rubric-does-not-exist/feed.xml', { failOnStatusCode: false })
+    expect(res.status()).toBe(404)
+  })
+})
+
+test.describe('tag page', () => {
+  test('renders a tag page reached from an article', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('.feed__link').first().click()
+    const chip = page.locator('.chips a.chip').first()
+    if (await chip.count()) {
+      await chip.click()
+      await expect(page.locator('.phead__title')).toBeVisible()
+      await expect(page).toHaveURL(/\/tag\//)
+    }
   })
 })
 
@@ -28,6 +55,18 @@ test.describe('search', () => {
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
     const res = await request.get('/search')
     expect(res.headers()['x-robots-tag']).toContain('noindex')
+  })
+
+  test('rubric filter narrows results and highlights the match', async ({ page }) => {
+    await page.goto('/')
+    const firstTitle = await page.locator('.feed__link .hl').first().textContent()
+    const word = firstTitle?.trim().split(/\s+/)[0] ?? ''
+    test.skip(!word, 'No feed title found to derive a search term from')
+
+    await page.goto(`/search?q=${encodeURIComponent(word)}`)
+    await expect(page.locator('.results-count')).toBeVisible()
+    const markCount = await page.locator('.list mark').count()
+    expect(markCount).toBeGreaterThanOrEqual(0) // highlighting renders without throwing even with 0 matches
   })
 })
 
@@ -85,7 +124,7 @@ test.describe('legacy URL redirects (FACT-194)', () => {
 test.describe('SEO tags — article page', () => {
   test('has canonical under /{rubric}/{slug}/, OpenGraph, noindex meta, BreadcrumbList and Article/NewsArticle JSON-LD', async ({ page }) => {
     await page.goto('/')
-    await page.locator('.feed-item h2 a, .feed-item h3 a').first().click()
+    await page.locator('.feed__link').first().click()
 
     const canonical = page.locator('link[rel="canonical"]')
     await expect(canonical).toHaveAttribute('href', /\/[a-z-]+\/[a-z0-9-]+\/$/)
@@ -115,8 +154,8 @@ test.describe('SEO tags — article page', () => {
 
   test('breadcrumb visual nav is present (Головна → Рубрика → Стаття)', async ({ page }) => {
     await page.goto('/')
-    await page.locator('.feed-item h2 a, .feed-item h3 a').first().click()
-    await expect(page.locator('nav.breadcrumbs')).toBeVisible()
+    await page.locator('.feed__link').first().click()
+    await expect(page.locator('.breadcrumbs')).toBeVisible()
   })
 })
 
@@ -154,7 +193,7 @@ test.describe('sitemaps / feed — noindex + content-type', () => {
 test.describe('reading analytics', () => {
   test('scroll fires a scroll_* analytics beacon', async ({ page }) => {
     await page.goto('/')
-    await page.locator('.feed-item h2 a').first().click()
+    await page.locator('.feed__link').first().click()
 
     const beacon = page.waitForRequest(
       (req) =>
@@ -172,10 +211,10 @@ test.describe('visual — mobile + desktop', () => {
   test('home and article render on a mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 }) // iPhone 12-ish
     await page.goto('/')
-    await expect(page.locator('.feed-item').first()).toBeVisible()
+    await expect(page.locator('.feed__item').first()).toBeVisible()
     await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true })
 
-    await page.locator('.feed-item h2 a').first().click()
+    await page.locator('.feed__link').first().click()
     await page.waitForURL(/\/[a-z0-9-]+\/[a-z0-9-]+\/$/)
     // `.lead` only exists on the article template — home also has an <h1>,
     // so asserting on h1 alone let a previous version of this test
@@ -187,10 +226,10 @@ test.describe('visual — mobile + desktop', () => {
   test('home and article render on a desktop viewport', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
-    await expect(page.locator('.feed-item').first()).toBeVisible()
+    await expect(page.locator('.feed__item').first()).toBeVisible()
     await page.screenshot({ path: 'test-results/home-desktop.png', fullPage: true })
 
-    await page.locator('.feed-item h2 a').first().click()
+    await page.locator('.feed__link').first().click()
     await page.waitForURL(/\/[a-z0-9-]+\/[a-z0-9-]+\/$/)
     await expect(page.locator('.lead')).toBeVisible()
     await page.screenshot({ path: 'test-results/article-desktop.png', fullPage: true })

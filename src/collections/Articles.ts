@@ -103,6 +103,37 @@ async function recomputeOriginality(
  * a draft into auto-publish — this field is the durable, editor-visible
  * record, not the only signal the auto-publish decision used.
  */
+/**
+ * «Терміново» (FACT-340, PO decision 09.11): only an admin/editor may set
+ * `breaking`, and the ingestion pipeline never sets it (draftFromEvent()
+ * never touches this field, so a brand-new doc from the Local API is
+ * unaffected — same shape as enforceAiAssistedOwnership above). A
+ * non-editor's attempted change is discarded in favour of whatever was
+ * already stored. When `breaking` turns on with no explicit `breaking_until`,
+ * default it to published_at (or now, if not yet published) + 2h.
+ */
+function enforceBreakingOwnership(
+  req: PayloadRequest,
+  data: Record<string, unknown>,
+  originalDoc?: Record<string, unknown>,
+) {
+  const isElevated = req.user?.role === 'admin' || req.user?.role === 'editor'
+  if (!isElevated && originalDoc) {
+    data.breaking = originalDoc.breaking ?? false
+    data.breaking_until = originalDoc.breaking_until ?? null
+    return
+  }
+  if (!data.breaking) return
+  if (!data.breaking_until) {
+    data.breaking_until = originalDoc?.breaking_until
+      ? originalDoc.breaking_until
+      : new Date(
+          new Date((data.published_at ?? originalDoc?.published_at ?? new Date().toISOString()) as string).getTime() +
+            2 * 60 * 60 * 1000,
+        ).toISOString()
+  }
+}
+
 function recomputeSensitivity(data: Record<string, unknown>, originalDoc?: Record<string, unknown>) {
   const aiAssisted = data.ai_assisted ?? originalDoc?.ai_assisted
   if (!aiAssisted) {
@@ -208,6 +239,23 @@ export const Articles: CollectionConfig = {
       type: 'checkbox',
       defaultValue: false,
       admin: { description: 'Закріплено редактором у блоці «Головне» на хабі рубрики та на головній.' },
+    },
+    {
+      name: 'breaking',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: {
+        description:
+          'Терміново: тільки редактор/адмін ставить вручну (PO decision 09.11, FACT-340). Автопайплайн це поле не виставляє — see enforceBreakingOwnership.',
+      },
+    },
+    {
+      name: 'breaking_until',
+      type: 'date',
+      admin: {
+        condition: (data) => !!data.breaking,
+        description: 'За замовчуванням = published_at + 2 год, виставляється автоматично, якщо не задано.',
+      },
     },
     {
       name: 'sources',
@@ -316,6 +364,7 @@ export const Articles: CollectionConfig = {
         data.slug = stableSlug(data.title, data.slug)
 
         enforceAiAssistedOwnership(req, data, originalDoc)
+        enforceBreakingOwnership(req, data, originalDoc)
         await recomputeOriginality(req, data, originalDoc)
         recomputeSensitivity(data, originalDoc)
 

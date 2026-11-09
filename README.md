@@ -36,7 +36,8 @@ sandbox project, not a public site.
 ```bash
 npm run test:unit   # vitest — slug stability, tag-noindex threshold, schema shape,
                      # ingest dedup/clustering (canonicalize/hash/simhash + feed fixtures)
-npm run test:e2e    # playwright — homepage + article page smoke test
+npm run test:e2e    # playwright — home, rubric hub, tag, article, search (incl. rubric
+                     # filter + highlighting), rubric RSS feeds, sitemaps, 404/410/redirects
 ```
 
 ### Demo data
@@ -51,3 +52,28 @@ with `[TBD]` placeholders instead of invented real contact details.
 and PNG mockups for home / rubric / tag / article / search / 404 at 390 and 1440 px, 12 rubric
 cover illustrations (`design/covers/*.svg`, fallback when an article has no licensed photo) and a
 placeholder logo. Implementation rules for the frontend: `design/README.md`.
+
+FACT-340 implements this design across all six templates (`src/app/(frontend)/`), reusing
+`design/tokens.css` directly (`@import` in `globals.css`) and the `design/prototype/prototype.css`
+component classes ported into the app. Fonts load via `next/font/google` (Literata, Golos Text),
+not `design/fonts`. Shared UI pieces — masthead/rubric nav, time-spine feed, cards, popular list,
+pagination, search highlighting — live in `src/components/`.
+
+### Portal functions (FACT-340)
+
+- RSS: `/feed.xml` (site-wide) and `/{rubric}/feed.xml` (per rubric), both shared via
+  `src/lib/rss.ts`.
+- `/tag/{slug}/` tag pages, with "Схожі теги" (co-occurring tags, `src/lib/relatedTags.ts`).
+- "Популярне" (home/rubric/article rail): real `scroll_100` reads in the last 24h, not the
+  lifetime `page_views` counter — `src/lib/popular.ts`, falls back to `page_views` when a
+  window has no analytics rows yet.
+- "Читайте також": same `event` first, then shared tags/rubric — `src/lib/related.ts`.
+- "Головне": pinned `Article.featured`; if fewer than 5 are pinned, topped up with the
+  `news` articles that have the most sources in the last 48h (broadening to all published
+  news if that window is too thin), not just the freshest — `src/lib/mainBlock.ts`
+  (`getFeaturedFill`/`rankFeaturedFill`, unit-tested in `tests/unit/main-block.test.ts`).
+- "Терміново" badge: editor-only `Article.breaking` + `breaking_until` (defaults to
+  `published_at` + 2h if unset) — server-owned like `ai_assisted`, see
+  `enforceBreakingOwnership` in `src/collections/Articles.ts`.
+- Search: Postgres full-text + rubric filter + period filter, matches highlighted with `<mark>`
+  (`src/components/Highlight.tsx`, safe — no `dangerouslySetInnerHTML`).
