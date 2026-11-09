@@ -5,7 +5,10 @@ import { getPayloadClient } from '@/lib/payload'
 import { articlePath, rubricPath, rubricPageNPath, absoluteUrl } from '@/lib/urls'
 import { getRubric, PAGE_SIZE } from '@/lib/rubricHub'
 import { buildPaginationMetadata } from '@/lib/seo'
+import { formatFeedTime } from '@/lib/time'
 import Breadcrumbs from '@/components/Breadcrumbs'
+import Cover from '@/components/Cover'
+import Pagination from '@/components/Pagination'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,10 +53,10 @@ export default async function RubricHubPaginatedPage({
   ])
 
   if (feed.docs.length === 0) notFound()
-  const hasNextPage = total.totalDocs > pageNum * PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(total.totalDocs / PAGE_SIZE))
 
   return (
-    <div>
+    <div className="container">
       <Breadcrumbs
         items={[
           { name: 'Головна', url: absoluteUrl('/') },
@@ -61,22 +64,30 @@ export default async function RubricHubPaginatedPage({
           { name: `Сторінка ${pageNum}`, url: absoluteUrl(rubricPageNPath(doc.slug!, pageNum)) },
         ]}
       />
-      <h1>{doc.title} — сторінка {pageNum}</h1>
+      <header className="phead">
+        <h1 className="phead__title">{doc.title} — сторінка {pageNum}</h1>
+      </header>
 
-      <section>
+      <ul className="list">
         {feed.docs.map((a) => (
-          <article key={a.id} className="feed-item">
-            <h3><Link href={articlePath(doc.slug!, a.slug!)}>{a.title}</Link></h3>
-            <p>{a.lead}</p>
-            <p className="meta">{a.published_at ? new Date(a.published_at).toLocaleString('uk-UA') : ''}</p>
-          </article>
+          <li className="list__item" key={a.id} data-r={doc.slug!}>
+            <Cover rubricSlug={doc.slug!} media={a.cover} />
+            <span className="meta">
+              <time dateTime={a.published_at ?? undefined}>{formatFeedTime(a.published_at)}</time>
+            </span>
+            <h3 className="hl hl--card">
+              <Link href={articlePath(doc.slug!, a.slug!)}>{a.title}</Link>
+            </h3>
+            <p className="list__excerpt">{a.lead}</p>
+          </li>
         ))}
-      </section>
+      </ul>
 
-      <nav className="pagination">
-        <Link href={pageNum === 2 ? rubricPath(doc.slug!) : rubricPageNPath(doc.slug!, pageNum - 1)}>← Попередня</Link>
-        {hasNextPage ? <Link href={rubricPageNPath(doc.slug!, pageNum + 1)}>Наступна →</Link> : null}
-      </nav>
+      <Pagination
+        current={pageNum}
+        total={totalPages}
+        basePath={(p) => (p === 1 ? rubricPath(doc.slug!) : rubricPageNPath(doc.slug!, p))}
+      />
     </div>
   )
 }

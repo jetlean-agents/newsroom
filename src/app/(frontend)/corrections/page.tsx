@@ -27,28 +27,34 @@ export default async function CorrectionsPage() {
   const items = selectCorrectionsArticles(result.docs as Article[])
 
   return (
-    <div>
-      <h1>Виправлення</h1>
-      <p>Усі суттєві виправлення до опублікованих матеріалів фіксуються тут та у самій статті.</p>
-      {items.map((a: Article) => {
-        const retractedAt = a.status === 'unpublished' ? lastActivityDate(a) : null
-        const rubricSlug = typeof a.rubric === 'object' ? a.rubric.slug : null
-        return (
-          <article key={a.id} className="feed-item">
-            <h2>{rubricSlug ? <Link href={articlePath(rubricSlug, a.slug!)}>{a.title}</Link> : a.title}</h2>
-            {a.status === 'unpublished' && (
-              <p className="retraction-note">
-                Матеріал знято{retractedAt ? `: ${new Date(retractedAt).toLocaleDateString('uk-UA')}` : ''}
-              </p>
-            )}
-            <ul>
-              {(a.corrections || []).map((c: NonNullable<Article['corrections']>[number], i: number) => (
-                <li key={i}>{c.date ? new Date(c.date).toLocaleDateString('uk-UA') : ''}: {c.note}</li>
-              ))}
-            </ul>
-          </article>
-        )
-      })}
+    <div className="container">
+      <header className="phead" style={{ paddingTop: 0 }}>
+        <h1 className="phead__title" style={{ fontSize: 'var(--fs-36)' }}>Виправлення</h1>
+        <p>Усі суттєві виправлення до опублікованих матеріалів фіксуються тут та у самій статті.</p>
+      </header>
+      <div className="cards cards--divided" style={{ maxWidth: 'var(--measure)' }}>
+        {items.map((a: Article) => {
+          const retractedAt = a.status === 'unpublished' ? lastActivityDate(a) : null
+          const rubricSlug = typeof a.rubric === 'object' ? a.rubric.slug : null
+          return (
+            <article key={a.id} className="card">
+              <h2 className="hl hl--card">
+                {rubricSlug ? <Link href={articlePath(rubricSlug, a.slug!)}>{a.title}</Link> : a.title}
+              </h2>
+              {a.status === 'unpublished' && (
+                <p className="meta">
+                  Матеріал знято{retractedAt ? `: ${new Date(retractedAt).toLocaleDateString('uk-UA')}` : ''}
+                </p>
+              )}
+              <ul className="corrections" style={{ borderLeftWidth: 4 }}>
+                {(a.corrections || []).map((c: NonNullable<Article['corrections']>[number], i: number) => (
+                  <li key={i}>{c.date ? new Date(c.date).toLocaleDateString('uk-UA') : ''}: {c.note}</li>
+                ))}
+              </ul>
+            </article>
+          )
+        })}
+      </div>
     </div>
   )
 }

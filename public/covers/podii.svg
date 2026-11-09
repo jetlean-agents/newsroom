@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" role="img" aria-labelledby="t-podii">
+  <title id="t-podii">Обкладинка рубрики «Події»: кола-імпульс від точки</title>
+  <clipPath id="c-podii"><rect width="1200" height="675"/></clipPath>
+  <rect width="1200" height="675" fill="#B3261E"/>
+  <g clip-path="url(#c-podii)">
+  <circle cx="530" cy="397.5" r="520" fill="none" stroke="#C25048" stroke-width="14"/>
+  <circle cx="530" cy="397.5" r="430" fill="none" stroke="#D27B75" stroke-width="14"/>
+  <circle cx="530" cy="397.5" r="345" fill="none" stroke="#C25048" stroke-width="14"/>
+  <circle cx="530" cy="397.5" r="265" fill="none" stroke="#D27B75" stroke-width="20"/>
+  <circle cx="530" cy="397.5" r="190" fill="none" stroke="#C25048" stroke-width="20"/>
+  <circle cx="530" cy="397.5" r="120" fill="none" stroke="#D27B75" stroke-width="20"/>
+  <circle cx="530" cy="397.5" r="62" fill="#F9E3DF"/>
+  <circle cx="530" cy="397.5" r="26" fill="#FFFFFF"/>
+  <circle cx="830" cy="187.5" r="38" fill="none" stroke="#F9E3DF" stroke-width="10"/>
+  <circle cx="830" cy="187.5" r="12" fill="#F9E3DF"/>
+  </g>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" role="img" aria-labelledby="t-kultura">
+  <title id="t-kultura">Обкладинка рубрики «Культура»: ритм арок</title>
+  <clipPath id="c-kultura"><rect width="1200" height="675"/></clipPath>
+  <rect width="1200" height="675" fill="#A3245E"/>
+  <g clip-path="url(#c-kultura)">
+  <path d="M100 547.5V481.5A110 110 0 0 1 320 481.5V547.5Z" fill="#B54D7D"/>
+  <path d="M270 547.5V457.5A150 150 0 0 1 570 457.5V547.5Z" fill="#C9799D"/>
+  <path d="M450 547.5V433.5A190 190 0 0 1 830 433.5V547.5Z" fill="#F7E0EA"/>
+  <path d="M740 547.5V463.5A140 140 0 0 1 1020 463.5V547.5Z" fill="#C9799D"/>
+  <path d="M980 547.5V493.5A90 90 0 0 1 1160 493.5V547.5Z" fill="#B54D7D"/>
+  <path d="M530 547.5V443.5A110 110 0 0 1 750 443.5V547.5Z" fill="#60274B"/>
+  <circle cx="640" cy="443.5" r="34" fill="#FFFFFF"/>
+  <rect x="0" y="547.5" width="1200" height="127.5" fill="#60274B"/>
+  </g>
+</svg>

@@ -291,6 +291,14 @@ export interface Article {
    * Закріплено редактором у блоці «Головне» на хабі рубрики та на головній.
    */
   featured?: boolean | null;
+  /**
+   * Терміново: тільки редактор/адмін ставить вручну (PO decision 09.11, FACT-340). Автопайплайн це поле не виставляє — see enforceBreakingOwnership.
+   */
+  breaking?: boolean | null;
+  /**
+   * За замовчуванням = published_at + 2 год, виставляється автоматично, якщо не задано.
+   */
+  breaking_until?: string | null;
   sources?:
     | {
         title: string;
@@ -688,6 +696,8 @@ export interface ArticlesSelect<T extends boolean = true> {
   tags?: T;
   content_type?: T;
   featured?: T;
+  breaking?: T;
+  breaking_until?: T;
   sources?:
     | T
     | {
