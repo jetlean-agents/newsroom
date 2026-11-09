@@ -2,9 +2,11 @@ import { getPayloadClient } from '@/lib/payload'
 import { getDraftProvider, type DraftFact } from '@/lib/ai/draftProvider'
 import { maxOverlap } from '@/lib/ai/originality'
 import { factCheckFlags } from '@/lib/ai/factCheck'
+import { classifySensitivity } from '@/lib/ai/sensitivity'
+import { spendLimitReached } from '@/lib/ai/spendGuard'
 import { prioritizeEvents } from '@/lib/review/priority'
-import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY } from '@/lib/env'
-import { SYSTEM_AUTHOR_EMAIL } from '@/lib/ingest/systemAuthor'
+import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY, AUTO_PUBLISH } from '@/lib/env'
+import { SYSTEM_AUTHOR_EMAIL, AUTO_EDITOR_EMAIL, AUTO_EDITOR_NAME } from '@/lib/ingest/systemAuthor'
 import type { Source, Rubric, Tag } from '@/payload-types'
 
 const DEFAULT_RUBRIC_SLUG = 'bez-rubryky'
@@ -50,6 +52,27 @@ async function getOrCreateSystemAuthor() {
   })
 }
 
+/**
+ * The real, disclosed byline for an AUTO_PUBLISH article (FACT-337 scope
+ * item 4) — distinct from the ingest placeholder above, which only ever
+ * reaches a reader after a human editor has claimed it.
+ */
+async function getOrCreateAutoEditor() {
+  const payload = await getPayloadClient()
+  const existing = await payload.find({ collection: 'users', where: { email: { equals: AUTO_EDITOR_EMAIL } }, limit: 1 })
+  if (existing.docs[0]) return existing.docs[0]
+  return payload.create({
+    collection: 'users',
+    data: {
+      name: AUTO_EDITOR_NAME,
+      email: AUTO_EDITOR_EMAIL,
+      password: `sys-${Math.random().toString(36).slice(2)}${Date.now()}`,
+      role: 'editor',
+    },
+    disableTransaction: true,
+  })
+}
+
 function paragraphNode(text: string) {
   return { type: 'paragraph', version: 1, children: [{ type: 'text', version: 1, text }] }
 }
@@ -78,15 +101,48 @@ function buildLexicalBody(paragraphs: string[], whatIsKnown: string, whatIsUnkno
   }
 }
 
+function startOfUtcDay(): Date {
+  const d = new Date()
+  d.setUTCHours(0, 0, 0, 0)
+  return d
+}
+
 async function draftsCreatedToday(): Promise<number> {
   const payload = await getPayloadClient()
-  const startOfDay = new Date()
-  startOfDay.setUTCHours(0, 0, 0, 0)
   const result = await payload.count({
     collection: 'articles',
-    where: { drafted_at: { greater_than_equal: startOfDay.toISOString() } },
+    where: { drafted_at: { greater_than_equal: startOfUtcDay().toISOString() } },
   })
   return result.totalDocs
+}
+
+/**
+ * Today's draft count per rubric id, so no single rubric can crowd out the
+ * other 11 (issue brief: "распределение по рубрикам, не больше ~40% в
+ * одной"). A plain count grouped in JS — the daily volume here (tens of
+ * rows) makes a DB-side aggregate unnecessary.
+ */
+async function draftsPerRubricToday(): Promise<Map<number, number>> {
+  const payload = await getPayloadClient()
+  const result = await payload.find({
+    collection: 'articles',
+    where: { drafted_at: { greater_than_equal: startOfUtcDay().toISOString() } },
+    depth: 0,
+    limit: 2000,
+    select: { rubric: true },
+  })
+  const counts = new Map<number, number>()
+  for (const doc of result.docs) {
+    const rubricId = typeof doc.rubric === 'object' ? (doc.rubric as Rubric).id : (doc.rubric as number)
+    if (rubricId == null) continue
+    counts.set(rubricId, (counts.get(rubricId) ?? 0) + 1)
+  }
+  return counts
+}
+
+/** Max drafts one rubric may take of DRAFTS_PER_DAY's daily budget. */
+function rubricDailyCap(): number {
+  return Math.max(1, Math.ceil(DRAFTS_PER_DAY * 0.4))
 }
 
 /**
@@ -122,13 +178,28 @@ export async function draftFromEvent() {
   const provider = getDraftProvider()
   let budgetRemaining = Math.max(0, DRAFTS_PER_DAY - (await draftsCreatedToday()))
 
+  // Checked once per run, not per event: a mid-run spend update from another
+  // process wouldn't change this anyway, and it's one extra DB round trip
+  // worth skipping when AI_PROVIDER isn't even "anthropic" (none/mock never
+  // spend anything).
+  const spendExhausted = provider.name === 'anthropic' && (await spendLimitReached())
+  const rubricCounts = await draftsPerRubricToday()
+  const rubricCap = rubricDailyCap()
+
   let drafted = 0
+  let autoPublished = 0
   let skippedBudget = 0
   let skippedError = 0
+  let skippedSpendLimit = 0
+  let skippedRubricCap = 0
 
   for (const event of rankedEvents) {
     if (budgetRemaining <= 0) {
       skippedBudget++
+      continue
+    }
+    if (spendExhausted) {
+      skippedSpendLimit++
       continue
     }
 
@@ -159,6 +230,17 @@ export async function draftFromEvent() {
     }
 
     const rubric = (await findRubricBySlug(draft.suggestedRubricSlug)) ?? (await getOrCreateFallbackRubric())
+
+    if ((rubricCounts.get(rubric.id) ?? 0) >= rubricCap) {
+      // This rubric already has its ~40%-of-the-day share (issue brief:
+      // "распределение по рубрикам, не больше ~40% в одной") — leave the
+      // event `new` for a later run once other rubrics have caught up or
+      // the daily cap resets, rather than drafting into an already-full
+      // rubric. Doesn't consume the DRAFTS_PER_DAY budget: no draft was made.
+      skippedRubricCap++
+      continue
+    }
+
     const author = await getOrCreateSystemAuthor()
     const tags = await getOrCreateTags(draft.tags)
 
@@ -169,6 +251,24 @@ export async function draftFromEvent() {
     const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts) : []
 
     const sources = facts.map((f) => ({ title: f.title, url: f.url, publisher: f.publisher, accessed_at: f.publishedAt }))
+
+    // Sensitivity (FACT-337 scope item 4): the dictionary classifier plus
+    // whatever the same Anthropic call itself judged — never trust either
+    // signal alone (the dictionary catches keyword matches the model might
+    // soften around; the model catches phrasing a keyword list can't see).
+    const sensitivity = classifySensitivity(bodyText)
+    const isSensitive = sensitivity.sensitive || !!draft.sensitive
+
+    // `anthropic` writes a complete, publish-ready article (not a digest an
+    // author still has to write from scratch like none/mock) — it goes
+    // straight into the fast review queue (/review) instead of sitting in
+    // `draft` waiting for someone to claim it, matching the issue brief's
+    // "чувствительные темы... идут в /review".
+    const isAnthropicPipeline = provider.name === 'anthropic' && draft.aiGenerated
+    const initialStatus: 'draft' | 'in_review' = isAnthropicPipeline ? 'in_review' : 'draft'
+
+    const eligibleForAutoPublish =
+      AUTO_PUBLISH && isAnthropicPipeline && !originalityBlocked && factFlags.length === 0 && !isSensitive
 
     const article = await payload.create({
       collection: 'articles',
@@ -181,16 +281,19 @@ export async function draftFromEvent() {
         event: event.id,
         event_date: members.docs[0].published_at || members.docs[0].fetched_at,
         sources,
-        status: 'draft',
+        status: initialStatus,
         author: author.id,
         drafted_at: new Date().toISOString(),
         ai_assisted: draft.aiGenerated,
         ai_disclosure: draft.aiGenerated
-          ? 'Цей чернетковий матеріал згенеровано за допомогою AI з фактів нижче і перевірений редактором перед публікацією.'
+          ? isAnthropicPipeline
+            ? 'Цей матеріал повністю згенеровано AI (Claude) на основі фактів і посилань нижче.'
+            : 'Цей чернетковий матеріал згенеровано за допомогою AI з фактів нижче і перевірений редактором перед публікацією.'
           : undefined,
         originality_overlap: overlap,
         originality_blocked: originalityBlocked,
         fact_flags: factFlags,
+        ai_cost_usd: draft.costUsd ?? null,
       },
       disableTransaction: true,
     })
@@ -203,7 +306,38 @@ export async function draftFromEvent() {
     })
     drafted++
     budgetRemaining--
+    rubricCounts.set(rubric.id, (rubricCounts.get(rubric.id) ?? 0) + 1)
+
+    if (eligibleForAutoPublish) {
+      try {
+        const autoEditor = await getOrCreateAutoEditor()
+        await payload.update({
+          collection: 'articles',
+          id: article.id,
+          data: { status: 'published' },
+          context: { autoPublish: true, autoEditorId: autoEditor.id },
+          disableTransaction: true,
+        })
+        autoPublished++
+      } catch (err) {
+        // Defense in depth: the publish-transition guard in Articles.ts
+        // (originality_blocked, in_review -> published only) re-checks
+        // everything above independently. A rejection here just means the
+        // article stays in_review for a human — never a reason to fail the
+        // whole run.
+        console.error(`[draftFromEvent] auto-publish rejected for article ${article.id}:`, err)
+      }
+    }
   }
 
-  return { eventsConsidered: events.docs.length, drafted, skippedBudget, skippedError, provider: provider.name }
+  return {
+    eventsConsidered: events.docs.length,
+    drafted,
+    autoPublished,
+    skippedBudget,
+    skippedError,
+    skippedSpendLimit,
+    skippedRubricCap,
+    provider: provider.name,
+  }
 }

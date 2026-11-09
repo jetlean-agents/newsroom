@@ -328,3 +328,74 @@ describe('author/editor hand-off on publish (FACT-236 AC item 7)', () => {
     expect(result.author).toBe(1)
   })
 })
+
+describe('AUTO_PUBLISH context bypass (FACT-337) — only the ingest job can trigger it, never the API', () => {
+  function autoPublish(data: Record<string, unknown>, originalDoc: Record<string, unknown>, context: Record<string, unknown> = { autoPublish: true, autoEditorId: 77 }) {
+    return runTransitionHook({
+      req: {
+        // No req.user at all — this is the Local API call draftFromEvent.ts
+        // makes, not a logged-in session.
+        context,
+        payload: {
+          find: async () => ({ docs: [] }),
+          findByID: async () => ({ email: SYSTEM_AUTHOR_EMAIL }),
+        },
+      },
+      data,
+      originalDoc,
+    })
+  }
+
+  it('publishes in_review -> published with no req.user when context.autoPublish is set', async () => {
+    await expect(
+      autoPublish({ title: 'T', lead: 'L', status: 'published', author: 1 }, { status: 'in_review' }),
+    ).resolves.not.toThrow()
+  })
+
+  it('assigns editor/author to the auto-editor id carried in context, same as a human editor publishing', async () => {
+    const result = await autoPublish({ title: 'T', lead: 'L', status: 'published', author: 1 }, { status: 'in_review' })
+    expect(result.editor).toBe(77)
+    expect(result.author).toBe(77)
+  })
+
+  it('rejects the same no-req.user publish with a 403 when context.autoPublish is not set (not a generic bypass)', async () => {
+    let caught: any
+    try {
+      await autoPublish({ title: 'T', lead: 'L', status: 'published', author: 1 }, { status: 'in_review' }, {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(APIError)
+    expect(caught.status).toBe(403)
+  })
+
+  it('still rejects auto-publish when the recomputed overlap is blocked — the context flag never bypasses originality', async () => {
+    const copiedSource = [
+      { title: 'Уряд ухвалив рішення про тарифи', summary: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.' },
+    ]
+    let caught: any
+    try {
+      await runTransitionHook({
+        req: {
+          context: { autoPublish: true, autoEditorId: 77 },
+          payload: {
+            find: async () => ({ docs: copiedSource }),
+            findByID: async () => ({ email: SYSTEM_AUTHOR_EMAIL }),
+          },
+        },
+        data: {
+          ai_assisted: true,
+          event: 1,
+          title: 'Уряд ухвалив рішення про тарифи',
+          lead: 'Кабмін підвищив тарифи з наступного місяця для всіх споживачів газу.',
+          status: 'published',
+        },
+        originalDoc: { status: 'in_review', ai_assisted: true, event: 1 },
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(APIError)
+    expect(caught.status).toBe(400)
+  })
+})

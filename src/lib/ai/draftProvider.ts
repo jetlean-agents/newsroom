@@ -1,4 +1,6 @@
 import { AI_PROVIDER, AI_MODEL, AI_API_KEY } from '@/lib/env'
+import { resolveAnthropicKey, reportUsage } from '@/lib/autoreg/client'
+import { estimateCostUsd } from '@/lib/ai/pricing'
 
 /**
  * One fact the draft is allowed to use — only fields SourceItems is allowed to
@@ -29,6 +31,11 @@ export type DraftOutput = {
   tags?: string[]
   /** False for the `none` provider's plain facts digest — never actual AI-written prose. */
   aiGenerated: boolean
+  /** The same Anthropic call's own judgment on sensitive topics (war/safety, politics, medicine, accusations, deaths/disasters) — only set by AnthropicDraftProvider; `draftFromEvent.ts` ORs this with the dictionary classifier in `lib/ai/sensitivity.ts`, never trusts either alone. */
+  sensitive?: boolean
+  sensitiveCategories?: string[]
+  /** Actual USD cost of this generation call (AI_MODEL pricing × token usage) — only set by AnthropicDraftProvider, used for the local AI_SPEND_LIMIT_USD guard and the Autoreg usage report. */
+  costUsd?: number
 }
 
 /**
@@ -109,23 +116,30 @@ const ANTHROPIC_SYSTEM_PROMPT = `Ти — редакційний асистен�
 - Кожне твердження має спиратися на один із наданих фактів.
 - Якщо інформації недостатньо для якогось аспекту — прямо напиши це в "whatIsUnknown", а не вигадуй.
 - Нейтральний, стриманий тон новинного репортажу.
+- Додатково оціни, чи стосується матеріал чутливих тем: війна/безпека, політика,
+  медицина, обвинення людей, смерті/катастрофи. Якщо хоча б одна застосовна —
+  "sensitive": true і перелічи категорії в "sensitiveCategories"
+  (значення лише з: "war_safety", "politics", "medicine", "accusations", "deaths_disasters").
 
 Відповідай ЛИШЕ JSON без жодного тексту навколо, у форматі:
-{"title": string, "lead": string, "paragraphs": string[3..6], "whatIsKnown": string, "whatIsUnknown": string, "suggestedRubricSlug": string, "tags": string[]}`
+{"title": string, "lead": string, "paragraphs": string[3..6], "whatIsKnown": string, "whatIsUnknown": string, "suggestedRubricSlug": string, "tags": string[], "sensitive": boolean, "sensitiveCategories": string[]}`
 
 /**
- * Real provider, selected only via AI_PROVIDER=anthropic once Roman's budget/key
- * decision is wired into AI_API_KEY (epic FACT-164 / key storage FACT-262). Safe
- * to leave selected with no key present: generateDraft throws a clear error
- * instead of silently calling out, and draftFromEvent treats that the same as
- * any other per-event failure (skips the event, keeps going).
+ * Real provider, selected via AI_PROVIDER=anthropic (Roman's 09.11 v3
+ * decision: Claude, key from Autoreg's secrets vault — FACT-337). The key
+ * comes from `resolveAnthropicKey()` (Autoreg first, AI_API_KEY only as
+ * fallback — FACT-337 scope item 1); if neither has one, generateDraft
+ * throws a clear error instead of silently calling out, and draftFromEvent
+ * treats that the same as any other per-event failure (skips the event,
+ * keeps going).
  */
 export class AnthropicDraftProvider implements DraftProvider {
   readonly name = 'anthropic'
 
   async generateDraft(input: DraftInput): Promise<DraftOutput> {
-    if (!AI_API_KEY) {
-      throw new Error('AI_PROVIDER=anthropic but AI_API_KEY is not set — see docs/env.md.')
+    const resolved = await resolveAnthropicKey(AI_API_KEY)
+    if (!resolved) {
+      throw new Error('AI_PROVIDER=anthropic but no key from Autoreg and AI_API_KEY is not set — see docs/env.md.')
     }
 
     const factsBlock = input.facts
@@ -136,12 +150,23 @@ export class AnthropicDraftProvider implements DraftProvider {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': AI_API_KEY,
+        'x-api-key': resolved.value,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
         model: AI_MODEL,
-        max_tokens: 2000,
+        // Headroom over the ~150-500 UA-word draft itself: Haiku 5.5 thinks
+        // by default (adaptive, effort "medium") and thinking tokens are
+        // billed as output AND count against this same budget — PO review
+        // (09.11) caught the original 2000 as too tight, risking a
+        // truncated/unparseable JSON response under the old limit.
+        max_tokens: 4000,
+        // Disabled outright rather than tuned down: this call only ever
+        // needs a short structured JSON draft, not a reasoning trace, and
+        // "disabled" is only valid at effort <= high — true for Haiku 5.5's
+        // default "medium". Also keeps the cost estimate in docs/editorial-
+        // pipeline.md accurate (it assumed no thinking tokens).
+        thinking: { type: 'disabled' },
         system: ANTHROPIC_SYSTEM_PROMPT,
         messages: [
           {
@@ -156,18 +181,49 @@ export class AnthropicDraftProvider implements DraftProvider {
       throw new Error(`Anthropic API error ${res.status}: ${await res.text()}`)
     }
 
-    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> }
+    const data = (await res.json()) as {
+      content?: Array<{ type: string; text?: string }>
+      usage?: { input_tokens?: number; output_tokens?: number }
+      stop_reason?: string
+    }
+
+    const inputTokens = data.usage?.input_tokens ?? 0
+    const outputTokens = data.usage?.output_tokens ?? 0
+    const costUsd = estimateCostUsd(AI_MODEL, inputTokens, outputTokens)
+
+    // Reported right after a successful response — BEFORE the stop_reason
+    // check and the JSON parse below — so tokens Anthropic already billed
+    // are never lost to Autoreg's usage ledger just because this draft is
+    // then rejected/discarded (PO review 09.11: usage was previously only
+    // sent after a successful JSON.parse). Best-effort and async — never
+    // lets a usage-reporting hiccup fail the draft itself (contract doc: a
+    // flush failure "сбой отправки не ломает генерацию").
+    if (resolved.source === 'autoreg' && resolved.secretId != null) {
+      void reportUsage({
+        secretId: resolved.secretId,
+        requests: 1,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        model: AI_MODEL,
+      })
+    }
+
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error('Anthropic response was truncated (stop_reason: max_tokens) — draft discarded, not a parseable generation.')
+    }
+
     const text = data.content?.find((block) => block.type === 'text')?.text
     if (!text) throw new Error('Anthropic response had no text content block.')
 
-    let parsed: Omit<DraftOutput, 'aiGenerated'>
+    let parsed: Omit<DraftOutput, 'aiGenerated' | 'costUsd'>
     try {
       parsed = JSON.parse(text)
     } catch {
       throw new Error(`Anthropic response was not valid JSON: ${text.slice(0, 200)}`)
     }
 
-    return { ...parsed, aiGenerated: true }
+    return { ...parsed, aiGenerated: true, costUsd }
   }
 }
 
