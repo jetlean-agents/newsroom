@@ -68,8 +68,10 @@ pagination, search highlighting — live in `src/components/`.
   lifetime `page_views` counter — `src/lib/popular.ts`, falls back to `page_views` when a
   window has no analytics rows yet.
 - "Читайте також": same `event` first, then shared tags/rubric — `src/lib/related.ts`.
-- "Головне": pinned `Article.featured`, topped up with the freshest `news` articles if fewer
-  than 5 are pinned.
+- "Головне": pinned `Article.featured`; if fewer than 5 are pinned, topped up with the
+  `news` articles that have the most sources in the last 48h (broadening to all published
+  news if that window is too thin), not just the freshest — `src/lib/mainBlock.ts`
+  (`getFeaturedFill`/`rankFeaturedFill`, unit-tested in `tests/unit/main-block.test.ts`).
 - "Терміново" badge: editor-only `Article.breaking` + `breaking_until` (defaults to
   `published_at` + 2h if unset) — server-owned like `ai_assisted`, see
   `enforceBreakingOwnership` in `src/collections/Articles.ts`.

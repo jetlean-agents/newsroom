@@ -6,6 +6,7 @@ import { articlePath, rubricPath } from '@/lib/urls'
 import { organizationJsonLd } from '@/lib/jsonld'
 import { RUBRIC_SLUGS } from '@/lib/rubricsConfig'
 import { getPopularArticles } from '@/lib/popular'
+import { getFeaturedFill } from '@/lib/mainBlock'
 import Cover from '@/components/Cover'
 import RubricLabel from '@/components/RubricLabel'
 import FeedList from '@/components/FeedList'
@@ -37,7 +38,8 @@ export default async function HomePage() {
 
   const [featured, feed, popular, evergreen, rubrics] = await Promise.all([
     // "Головне" (README): самий свіжий featured — топ, наступні 4 — «Головне».
-    // Якщо featured менше 5, добираємо свіжими news.
+    // Якщо featured менше 5, добираємо матеріалами з найбільшою кількістю джерел
+    // (getFeaturedFill, src/lib/mainBlock.ts) — PO review 09.11, не просто свіжими.
     payload.find({
       collection: 'articles',
       where: { and: [{ status: { equals: 'published' } }, { featured: { equals: true } }] },
@@ -69,20 +71,10 @@ export default async function HomePage() {
 
   let mainBlock = featured.docs
   if (mainBlock.length < 5) {
-    const fill = await payload.find({
-      collection: 'articles',
-      where: {
-        and: [
-          { status: { equals: 'published' } },
-          { content_type: { equals: 'news' } },
-          { id: { not_in: mainBlock.map((a) => a.id) } },
-        ],
-      },
-      sort: '-published_at',
-      limit: 5 - mainBlock.length,
-      depth: 1,
-    })
-    mainBlock = [...mainBlock, ...fill.docs]
+    // PO review 09.11: fill with the most-sourced articles (last 48h), not just the
+    // freshest — src/lib/mainBlock.ts.
+    const fill = await getFeaturedFill(mainBlock.map((a) => a.id), 5 - mainBlock.length)
+    mainBlock = [...mainBlock, ...fill]
   }
 
   const top = mainBlock[0]
