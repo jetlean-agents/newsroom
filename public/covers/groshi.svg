@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" role="img" aria-labelledby="t-groshi">
+  <title id="t-groshi">Обкладинка рубрики «Гроші»: три монети</title>
+  <clipPath id="c-groshi"><rect width="1200" height="675"/></clipPath>
+  <rect width="1200" height="675" fill="#85640A"/>
+  <g clip-path="url(#c-groshi)">
+  <circle cx="464" cy="415.5" r="150" fill="#504A1C"/>
+  <circle cx="450" cy="397.5" r="150" fill="#B8A263"/>
+  <circle cx="450" cy="397.5" r="108" fill="none" stroke="#85640A" stroke-width="8" stroke-opacity="0.35"/>
+  <circle cx="624" cy="345.5" r="170" fill="#504A1C"/>
+  <circle cx="610" cy="327.5" r="170" fill="#F6EDCF"/>
+  <circle cx="610" cy="327.5" r="122.4" fill="none" stroke="#85640A" stroke-width="8" stroke-opacity="0.35"/>
+  <circle cx="784" cy="435.5" r="130" fill="#504A1C"/>
+  <circle cx="770" cy="417.5" r="130" fill="#FFFFFF"/>
+  <circle cx="770" cy="417.5" r="93.6" fill="none" stroke="#85640A" stroke-width="8" stroke-opacity="0.35"/>
+  </g>
+</svg>

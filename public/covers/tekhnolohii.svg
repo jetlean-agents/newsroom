@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" role="img" aria-labelledby="t-tekhnolohii">
+  <title id="t-tekhnolohii">Обкладинка рубрики «Технології»: схема з трасами й кристалом</title>
+  <clipPath id="c-tekhnolohii"><rect width="1200" height="675"/></clipPath>
+  <rect width="1200" height="675" fill="#5B3FB5"/>
+  <g clip-path="url(#c-tekhnolohii)">
+  <path d="M80 217.5H340V297.5H480" fill="none" stroke="#9B89D3" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M80 477.5H280V397.5H480" fill="none" stroke="#9B89D3" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M1120 167.5H900V277.5H720" fill="none" stroke="#9B89D3" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M1120 447.5H840V377.5H720" fill="none" stroke="#9B89D3" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M560 217.5V47.5H760" fill="none" stroke="#9B89D3" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M640 457.5V627.5H420" fill="none" stroke="#9B89D3" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="340" cy="217.5" r="20" fill="#E9E4F8"/>
+  <circle cx="280" cy="477.5" r="20" fill="#E9E4F8"/>
+  <circle cx="900" cy="167.5" r="20" fill="#E9E4F8"/>
+  <circle cx="840" cy="447.5" r="20" fill="#E9E4F8"/>
+  <circle cx="760" cy="47.5" r="20" fill="#E9E4F8"/>
+  <circle cx="420" cy="627.5" r="20" fill="#E9E4F8"/>
+  <rect x="480" y="217.5" width="240" height="240" rx="20" fill="#39367A"/>
+  <rect x="516" y="253.5" width="168" height="168" rx="12" fill="#E9E4F8"/>
+  <rect x="536" y="273.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="536" y="321.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="536" y="369.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="584" y="273.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="584" y="321.5" width="32" height="32" rx="4" fill="#FFFFFF"/>
+  <rect x="584" y="369.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="632" y="273.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="632" y="321.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  <rect x="632" y="369.5" width="32" height="32" rx="4" fill="#9B89D3"/>
+  </g>
+</svg>
