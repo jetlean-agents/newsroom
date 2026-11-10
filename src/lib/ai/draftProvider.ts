@@ -125,6 +125,25 @@ const ANTHROPIC_SYSTEM_PROMPT = `Ти — редакційний асистен�
 {"title": string, "lead": string, "paragraphs": string[3..6], "whatIsKnown": string, "whatIsUnknown": string, "suggestedRubricSlug": string, "tags": string[], "sensitive": boolean, "sensitiveCategories": string[]}`
 
 /**
+ * Claude's response is supposed to be bare JSON (the system prompt says so),
+ * but it sometimes wraps it in a ```json fenced block or leaves stray prose
+ * before/after it anyway. Strips a fence if present, then — whether or not
+ * there was one — narrows to the outermost {...} span, so a plain
+ * `JSON.parse` downstream still sees exactly what it expects. Never swallows
+ * a genuinely invalid response: with no `{`/`}` pair to narrow to, the
+ * original (unparseable) text is returned unchanged and `JSON.parse` still
+ * throws (FACT-378 AC1).
+ */
+export function extractJsonCandidate(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const unfenced = fenced ? fenced[1] : text
+  const start = unfenced.indexOf('{')
+  const end = unfenced.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) return unfenced
+  return unfenced.slice(start, end + 1)
+}
+
+/**
  * Real provider, selected via AI_PROVIDER=anthropic (Roman's 09.11 v3
  * decision: Claude, key from Autoreg's secrets vault — FACT-337). The key
  * comes from `resolveAnthropicKey()` (Autoreg first, AI_API_KEY only as
@@ -218,7 +237,7 @@ export class AnthropicDraftProvider implements DraftProvider {
 
     let parsed: Omit<DraftOutput, 'aiGenerated' | 'costUsd'>
     try {
-      parsed = JSON.parse(text)
+      parsed = JSON.parse(extractJsonCandidate(text))
     } catch {
       throw new Error(`Anthropic response was not valid JSON: ${text.slice(0, 200)}`)
     }

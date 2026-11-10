@@ -209,4 +209,58 @@ describe('AnthropicDraftProvider (AI_PROVIDER=anthropic — never called without
     expect(usageBody.input_tokens).toBe(750)
     expect(usageBody.output_tokens).toBe(120)
   })
+
+  const VALID_DRAFT_JSON = {
+    title: 'T',
+    lead: 'L',
+    paragraphs: ['P1', 'P2', 'P3'],
+    whatIsKnown: 'K',
+    whatIsUnknown: '',
+    sensitive: false,
+    sensitiveCategories: [],
+  }
+
+  it('parses a response wrapped in a ```json markdown fence (FACT-378 AC1)', async () => {
+    const { FreshAnthropicDraftProvider } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: '```json\n' + JSON.stringify(VALID_DRAFT_JSON) + '\n```' }],
+      usage: { input_tokens: 800, output_tokens: 700 },
+      stop_reason: 'end_turn',
+    })
+
+    const draft = await new FreshAnthropicDraftProvider().generateDraft(input)
+    expect(draft.title).toBe('T')
+    expect(draft.aiGenerated).toBe(true)
+  })
+
+  it('parses a response wrapped in a bare ``` fence with no language tag', async () => {
+    const { FreshAnthropicDraftProvider } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: '```\n' + JSON.stringify(VALID_DRAFT_JSON) + '\n```' }],
+      usage: { input_tokens: 800, output_tokens: 700 },
+      stop_reason: 'end_turn',
+    })
+
+    const draft = await new FreshAnthropicDraftProvider().generateDraft(input)
+    expect(draft.title).toBe('T')
+  })
+
+  it('parses a response with stray prose before and after the JSON object', async () => {
+    const { FreshAnthropicDraftProvider } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: 'Here is the draft:\n' + JSON.stringify(VALID_DRAFT_JSON) + '\nHope this helps!' }],
+      usage: { input_tokens: 800, output_tokens: 700 },
+      stop_reason: 'end_turn',
+    })
+
+    const draft = await new FreshAnthropicDraftProvider().generateDraft(input)
+    expect(draft.title).toBe('T')
+  })
+
+  it('still rejects genuinely non-JSON prose even after stripping fences (no { at all)', async () => {
+    const { FreshAnthropicDraftProvider } = await setUpAutoregAndAnthropic({
+      content: [{ type: 'text', text: '```\nsorry, I cannot help with that\n```' }],
+      usage: { input_tokens: 750, output_tokens: 120 },
+      stop_reason: 'end_turn',
+    })
+
+    await expect(new FreshAnthropicDraftProvider().generateDraft(input)).rejects.toThrow(/not valid JSON/)
+  })
 })

@@ -116,6 +116,16 @@ queue can never outgrow what an editor can actually clear. Only facts allowed
 in `SourceItems` (title/summary/url/publisher/dates) ever reach the draft —
 never a scraped full article body.
 
+**Slug**: generated once from the title (`stableSlug()`/`slugify()` in
+`src/lib/slug.ts`) and never regenerated on later edits. `slugify()` always
+returns a non-empty string — a title with nothing transliterable (emoji-only,
+a script outside the UA/RU Cyrillic table, etc.) falls back to a short hash
+(`article-<hash>`) instead of an empty slug. The `Articles` `beforeChange`
+hook then resolves any remaining collision against the DB
+(`uniqueSlug()`), appending `-2`, `-3`, ... until free, so a repeated or
+hash-fallback title can no longer fail article creation with "The following
+field is invalid: slug" (FACT-378).
+
 **Draft provider** (`src/lib/ai/draftProvider.ts`, `AI_PROVIDER` env):
 
 - `none` (sandbox default) — no AI call at all. The draft is a plain
@@ -131,10 +141,16 @@ never a scraped full article body.
   Messages API with a system prompt that forbids inventing quotes/people/
   numbers/dates, requires every claim to cite a supplied fact, and also asks
   the same call to judge sensitive topics (see "Auto-publish gate" below);
-  expects strict JSON back. The key comes from `resolveAnthropicKey()`
-  (`src/lib/autoreg/client.ts`) — Autoreg first, `AI_API_KEY` only as a
-  fallback — and generateDraft throws a clear per-event error (skipped, not
-  fatal to the job) if neither source has one.
+  expects strict JSON back — tolerant of the model wrapping it in a
+  ` ```json ... ``` ` (or plain ` ``` ... ``` `) fence, or adding stray prose
+  before/after it: `extractJsonCandidate()` in `draftProvider.ts` strips a
+  fence if present and narrows to the outermost `{...}` span before
+  `JSON.parse` (FACT-378). A response with no parseable JSON object at all
+  still fails with "Anthropic response was not valid JSON" — a per-event
+  `skippedError`, not silently dropped. The key comes from
+  `resolveAnthropicKey()` (`src/lib/autoreg/client.ts`) — Autoreg first,
+  `AI_API_KEY` only as a fallback — and generateDraft throws a clear
+  per-event error (skipped, not fatal to the job) if neither source has one.
 
 ### Autoreg integration (FACT-337 scope item 1)
 
