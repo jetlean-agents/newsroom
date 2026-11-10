@@ -32,6 +32,26 @@ export const AI_API_KEY = process.env.AI_API_KEY || ''
 export const ORIGINALITY_MAX_OVERLAP = Number(process.env.ORIGINALITY_MAX_OVERLAP || 0.5)
 /** Hard cap on how many new AI drafts draftFromEvent() creates per UTC calendar day, so the review queue can't fill with thin content faster than editors can clear it. */
 export const DRAFTS_PER_DAY = Number(process.env.DRAFTS_PER_DAY || 20)
+/**
+ * How many times `ingest-draft-from-event` runs per UTC day — `worker.ts`
+ * schedules it `*\/10 * * * *`. Used only to compute `DRAFTS_PER_TICK`'s
+ * default below; the cron expression itself is the actual source of truth.
+ */
+const DRAFT_FROM_EVENT_TICKS_PER_DAY = 144
+/**
+ * Cap on how many new AI drafts a *single* `draftFromEvent()` tick creates
+ * (FACT-379): without this, a tick that finds a backlog of confirmed events
+ * burns through the whole `DRAFTS_PER_DAY` budget in its first run or two
+ * and leaves the rest of the day idle (sandbox measurement, FACT-341 10.11
+ * 01:22 UTC: `drafted 39` in one tick, then `skippedBudget 89` for the rest
+ * of the day) — spreading drafts across the day instead gives editors (and,
+ * with AUTO_PUBLISH on, readers) a steadier stream. Defaults to
+ * `ceil(DRAFTS_PER_DAY / ticks_per_day)` so a lone default install still
+ * paces itself without needing this set explicitly.
+ */
+export const DRAFTS_PER_TICK = Number(
+  process.env.DRAFTS_PER_TICK || Math.max(1, Math.ceil(DRAFTS_PER_DAY / DRAFT_FROM_EVENT_TICKS_PER_DAY)),
+)
 
 // --- Autoreg (FACT-337): the anthropic provider's key/spend source of truth ---
 /** Autoreg base URL, e.g. https://autoreg.bigear.uk — unset means Autoreg is not wired up; the anthropic provider falls back to AI_API_KEY. */
