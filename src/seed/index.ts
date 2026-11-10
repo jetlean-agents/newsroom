@@ -93,7 +93,12 @@ async function recategorizeBezRubrykyArticles(payload: Payload, rubricBySlug: (s
     limit: 200,
   })
   for (const doc of stuck.docs) {
-    const slug = classifyFallbackRubric(`${doc.title} ${doc.lead ?? ''}`)
+    // Unlike the live pipeline (draftFromEvent.ts), this is a one-off cleanup
+    // of already-published legacy articles — they need *some* real rubric
+    // today, so a keyword miss here still lands on suspilstvo rather than
+    // routing back into bez-rubryky (the article is published, not pending
+    // review).
+    const slug = classifyFallbackRubric(`${doc.title} ${doc.lead ?? ''}`) ?? 'suspilstvo'
     await payload.update({
       collection: 'articles',
       id: doc.id,

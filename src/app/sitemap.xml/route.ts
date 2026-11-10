@@ -11,11 +11,21 @@ export async function GET() {
     payload.find({ collection: 'rubrics', limit: 100 }),
   ])
 
+  // FACT-382 AC1: a rubric with zero published articles (e.g. "bez-rubryky" —
+  // the FACT-382 /review holding pen, or any other rubric that just hasn't
+  // been drafted into yet) has nothing to show at its hub URL and must not be
+  // listed — the hub page itself answers `noindex` for the same reason (see
+  // [rubric]/page.tsx generateMetadata).
+  const publishedRubricIds = new Set(
+    articles.docs.filter((a) => typeof a.rubric === 'object').map((a) => (a.rubric as { id: number | string }).id),
+  )
+  const nonEmptyRubrics = rubrics.docs.filter((r) => publishedRubricIds.has(r.id))
+
   // Only canonical, indexable (page 1) rubric hubs + articles — never tags
   // (thin until TAG_NOINDEX_THRESHOLD) or pagination page 2+ (tech-spec.md §5).
   const urls = [
     `<url><loc>${SITE_URL}/</loc></url>`,
-    ...rubrics.docs.map((r) => `<url><loc>${absoluteUrl(rubricPath(r.slug!))}</loc></url>`),
+    ...nonEmptyRubrics.map((r) => `<url><loc>${absoluteUrl(rubricPath(r.slug!))}</loc></url>`),
     ...articles.docs
       .filter((a) => typeof a.rubric === 'object')
       .map(
