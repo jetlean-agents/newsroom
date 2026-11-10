@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getPayloadClient } from '@/lib/payload'
-import { NOINDEX } from '@/lib/env'
+import { NOINDEX, thinPageRobotsMeta } from '@/lib/env'
 import { articlePath, rubricPath, rubricPageNPath, tagPath, absoluteUrl } from '@/lib/urls'
 import { getRubric, getPopularTagsForRubric, PAGE_SIZE } from '@/lib/rubricHub'
 import { getPopularArticles } from '@/lib/popular'
@@ -25,11 +25,22 @@ export async function generateMetadata({
   const doc = await getRubric(rubric)
   if (!doc) return {}
   const url = absoluteUrl(rubricPath(doc.slug!))
+  // FACT-382 AC1: an empty rubric (no published articles — e.g. "bez-rubryky",
+  // the /review holding pen for unclassified drafts) is left `noindex` instead
+  // of 404: the slug is a real, permanent hub that just has nothing published
+  // yet, so there's no reason to kill the URL outright, only to stop Google
+  // spending a crawl on a thin page (and it's already excluded from
+  // sitemap.xml — see src/app/sitemap.xml/route.ts).
+  const payload = await getPayloadClient()
+  const publishedCount = await payload.count({
+    collection: 'articles',
+    where: { and: [{ status: { equals: 'published' } }, { rubric: { equals: doc.id } }] },
+  })
   return {
     title: doc.title,
     description: doc.description || undefined,
     alternates: { canonical: url, types: { 'application/rss+xml': `${url}feed.xml` } },
-    robots: NOINDEX ? 'noindex, nofollow' : 'index, follow',
+    robots: publishedCount.totalDocs === 0 ? thinPageRobotsMeta() : NOINDEX ? 'noindex, nofollow' : 'index, follow',
     openGraph: { title: doc.title, description: doc.description || undefined, url, type: 'website', locale: 'uk_UA' },
   }
 }

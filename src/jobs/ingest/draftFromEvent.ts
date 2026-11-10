@@ -5,7 +5,8 @@ import { factCheckFlags } from '@/lib/ai/factCheck'
 import { classifySensitivity } from '@/lib/ai/sensitivity'
 import { spendLimitReached } from '@/lib/ai/spendGuard'
 import { prioritizeEvents } from '@/lib/review/priority'
-import { classifyFallbackRubric, validRubricSlugOrNull } from '@/lib/ai/rubricClassifier'
+import { classifyRubric, validRubricSlugOrNull } from '@/lib/ai/rubricClassifier'
+import { getSourceFeedRubricSlug } from '@/lib/ingest/sourcesConfig'
 import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY, DRAFTS_PER_TICK, AUTO_PUBLISH } from '@/lib/env'
 import { SYSTEM_AUTHOR_EMAIL, AUTO_EDITOR_EMAIL, AUTO_EDITOR_NAME } from '@/lib/ingest/systemAuthor'
 import type { Source, Rubric, Tag } from '@/payload-types'
@@ -48,6 +49,22 @@ async function findRubricBySlug(slug: string | undefined | null): Promise<Rubric
   const payload = await getPayloadClient()
   const existing = await payload.find({ collection: 'rubrics', where: { slug: { equals: slug } }, limit: 1 })
   return existing.docs[0] ?? null
+}
+
+/**
+ * FACT-382 AC2 stage 1: the registry's per-source rubric mapping, applied to
+ * an event's own source-items. Only trusted when every source-item that
+ * resolves to a mapping agrees on the same rubric — a clustered event
+ * straddling two unrelated single-rubric sources carries no real signal.
+ */
+function feedRubricSlugForEvent(members: { docs: Array<{ source?: Source | number | null }> }): string | null {
+  const slugs = new Set<string>()
+  for (const item of members.docs) {
+    if (typeof item.source !== 'object' || item.source === null) continue
+    const slug = getSourceFeedRubricSlug(item.source.source_key)
+    if (slug) slugs.add(slug)
+  }
+  return slugs.size === 1 ? [...slugs][0] : null
 }
 
 async function getOrCreateTags(titles: string[] | undefined): Promise<Tag[]> {
@@ -294,16 +311,21 @@ export async function draftFromEvent() {
 
         const draft = await provider.generateDraft({ eventTitle: event.title, facts })
 
-        // FACT-381 bug #2: never fall through to "Без рубрики" — a model
-        // slug outside the closed RUBRICS_CONFIG set (or missing entirely)
-        // goes through the keyword fallback classifier first, which always
-        // resolves to a real rubric; getOrCreateFallbackRubric() is only a
-        // last-resort safety net if that rubric somehow isn't seeded yet.
+        // FACT-382 AC2: a model slug outside the closed RUBRICS_CONFIG set (or
+        // missing entirely) goes through the fallback chain — source-registry
+        // feed mapping first, then the keyword dictionary (classifyRubric,
+        // src/lib/ai/rubricClassifier.ts). Neither stage ever defaults to
+        // "Суспільство" anymore (FACT-381 bug #2 fixed that dead end, FACT-382
+        // closed the silent-default-to-suspilstvo one): a genuine miss comes
+        // back `null` and the article holds in "Без рубрики" for human review
+        // instead of auto-publishing into a rubric nobody chose.
         const validSuggestedSlug = validRubricSlugOrNull(draft.suggestedRubricSlug)
-        const rubric =
-          (await findRubricBySlug(validSuggestedSlug)) ??
-          (await findRubricBySlug(classifyFallbackRubric(`${event.title} ${draft.title} ${draft.lead} ${draft.paragraphs.join(' ')}`))) ??
-          (await getOrCreateFallbackRubric())
+        const feedRubricSlug = feedRubricSlugForEvent(members)
+        const fallbackSlug =
+          validSuggestedSlug ??
+          classifyRubric({ feedRubricSlug, text: `${event.title} ${draft.title} ${draft.lead} ${draft.paragraphs.join(' ')}` })
+        const needsHumanRubricReview = fallbackSlug == null
+        const rubric = fallbackSlug ? (await findRubricBySlug(fallbackSlug)) ?? (await getOrCreateFallbackRubric()) : await getOrCreateFallbackRubric()
 
         if ((rubricCounts.get(rubric.id) ?? 0) >= rubricCap) {
           // This rubric already has its ~40%-of-the-day share (issue brief:
@@ -341,9 +363,12 @@ export async function draftFromEvent() {
         // author still has to write from scratch like none/mock) — it goes
         // straight into the fast review queue (/review) instead of sitting in
         // `draft` waiting for someone to claim it, matching the issue brief's
-        // "чувствительные темы... идут в /review".
+        // "чувствительные темы... идут в /review". FACT-382 AC2: an article
+        // the rubric classifier couldn't place anywhere (needsHumanRubricReview)
+        // goes to /review too, whatever the provider — a human has to pick its
+        // real rubric before it can be published at all.
         const isAnthropicPipeline = provider.name === 'anthropic' && draft.aiGenerated
-        const initialStatus: 'draft' | 'in_review' = isAnthropicPipeline ? 'in_review' : 'draft'
+        const initialStatus: 'draft' | 'in_review' = isAnthropicPipeline || needsHumanRubricReview ? 'in_review' : 'draft'
 
         // FACT-381 bug #3: a number-sensitive rubric (groshi: rates, prices,
         // tariffs) whose own "what's unknown" admits the key figures weren't
@@ -353,7 +378,13 @@ export async function draftFromEvent() {
         const insufficientFacts = draft.aiGenerated && hasNumericGap(rubric.slug ?? '', draft)
 
         const eligibleForAutoPublish =
-          AUTO_PUBLISH && isAnthropicPipeline && !originalityBlocked && factFlags.length === 0 && !isSensitive && !insufficientFacts
+          AUTO_PUBLISH &&
+          isAnthropicPipeline &&
+          !needsHumanRubricReview &&
+          !originalityBlocked &&
+          factFlags.length === 0 &&
+          !isSensitive &&
+          !insufficientFacts
 
         const article = await payload.create({
           collection: 'articles',

@@ -257,4 +257,53 @@ describe('draftFromEvent funnel counters (FACT-362)', () => {
 
     vi.doUnmock('@/lib/env')
   })
+
+  // FACT-382 AC2: when neither the model's suggestedRubricSlug nor the feed
+  // mapping nor the keyword dictionary can place a draft (weather/lifestyle
+  // filler with no distinguishing source or keywords), it must hold in
+  // "bez-rubryky" under in_review for a human to pick a real rubric — never
+  // auto-defaulted into "suspilstvo" and published.
+  it('routes an unclassifiable draft (weather, no feed/keyword match) to bez-rubryky + in_review, not auto-published', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/env', () => ({
+      ORIGINALITY_MAX_OVERLAP: 0.5,
+      DRAFTS_PER_DAY: 20,
+      DRAFTS_PER_TICK: 20,
+      AUTO_PUBLISH: true,
+    }))
+    const { draftFromEvent: draftFromEventAutoPublish } = await import('@/jobs/ingest/draftFromEvent')
+
+    mockFind.mockImplementation(({ collection }: { collection: string }) => {
+      if (collection === 'events') return Promise.resolve({ docs: [makeEvent(1)] })
+      if (collection === 'source-items') {
+        return Promise.resolve({
+          docs: [{ title: 'T', summary: 'S', url: 'https://x.test/a', source: { name: 'Outlet' }, published_at: '2026-11-09T18:00:00.000Z' }],
+        })
+      }
+      if (collection === 'rubrics') return Promise.resolve({ docs: [{ id: 1, slug: 'bez-rubryky' }] })
+      if (collection === 'users') return Promise.resolve({ docs: [{ id: 1 }] })
+      return Promise.resolve({ docs: [] })
+    })
+    mockGenerateDraft.mockResolvedValue({
+      title: 'Прогноз на вихідні',
+      lead: 'Похолодання до -9 градусів вночі.',
+      paragraphs: ['Синоптики попереджають про різку зміну температури.'],
+      whatIsKnown: '',
+      whatIsUnknown: '',
+      // no suggestedRubricSlug at all — the model gave up too
+      aiGenerated: true,
+    })
+    mockCreate.mockImplementation(({ data }: { data: { event: number } }) => Promise.resolve({ id: data.event }))
+    mockUpdate.mockResolvedValue({})
+
+    const result = await draftFromEventAutoPublish()
+
+    expect(result.drafted).toBe(1)
+    expect(result.autoPublished).toBe(0)
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'in_review', rubric: 1 }) }),
+    )
+
+    vi.doUnmock('@/lib/env')
+  })
 })
