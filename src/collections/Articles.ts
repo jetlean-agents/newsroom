@@ -79,10 +79,11 @@ async function recomputeOriginality(
     where: { event: { equals: eventId } },
     limit: 50,
   })
-  // Includes `url` (FACT-379, same reasoning as draftFromEvent.ts): a figure
-  // the draft carried over from a source's title/URL slug but never restated
-  // in the summary shouldn't be flagged as invented.
-  const sourceTexts = members.docs.map((item: SourceItem) => `${item.title} ${item.summary ?? ''} ${item.url ?? ''}`)
+  const sourceTexts = members.docs.map((item: SourceItem) => `${item.title} ${item.summary ?? ''}`)
+  // URLs are compared separately, by whole numeric token only (FACT-379 PO
+  // review) — folding them into sourceTexts let a long URL path id
+  // ("3912458") substring-"support" an unrelated short number ("245").
+  const sourceUrls = members.docs.map((item: SourceItem) => item.url).filter((url): url is string => !!url)
 
   const title = data.title ?? originalDoc?.title ?? ''
   const lead = data.lead ?? originalDoc?.lead ?? ''
@@ -92,7 +93,7 @@ async function recomputeOriginality(
   const overlap = maxOverlap(bodyText, sourceTexts)
   data.originality_overlap = overlap
   data.originality_blocked = overlap > ORIGINALITY_MAX_OVERLAP
-  data.fact_flags = factCheckFlags(bodyText, sourceTexts)
+  data.fact_flags = factCheckFlags(bodyText, sourceTexts, sourceUrls)
 }
 
 /**

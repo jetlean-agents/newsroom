@@ -285,13 +285,14 @@ export async function draftFromEvent() {
         const tags = await getOrCreateTags(draft.tags)
 
         const bodyText = [draft.lead, ...draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown].filter(Boolean).join('\n')
-        // Includes `url` (FACT-379: a figure the model carried over from a
-        // source's title/URL slug but never restated in the summary prose —
-        // e.g. a date-shaped URL segment — shouldn't be flagged as invented).
-        const sourceTexts = facts.map((f) => `${f.title} ${f.summary ?? ''} ${f.url ?? ''}`)
+        const sourceTexts = facts.map((f) => `${f.title} ${f.summary ?? ''}`)
+        // URLs are compared separately, by whole numeric token only (FACT-379
+        // PO review) — folding them into sourceTexts let a long URL path id
+        // ("3912458") substring-"support" an unrelated short number ("245").
+        const sourceUrls = facts.map((f) => f.url).filter((url): url is string => !!url)
         const overlap = draft.aiGenerated ? maxOverlap(bodyText, sourceTexts) : 0
         const originalityBlocked = overlap > ORIGINALITY_MAX_OVERLAP
-        const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts) : []
+        const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts, sourceUrls) : []
 
         const sources = facts.map((f) => ({ title: f.title, url: f.url, publisher: f.publisher, accessed_at: f.publishedAt }))
 

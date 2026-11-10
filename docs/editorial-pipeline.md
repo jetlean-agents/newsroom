@@ -368,21 +368,35 @@ same value*, never skips the comparison:
   produces a different key and is still flagged.
 - **Ukrainian case endings on names/toponyms**: `kind: 'name'` matching
   strips one trailing Ukrainian noun-case suffix per word (`factCheck.ts`
-  `stemWord`) and treats two stems as equal whenever one is a prefix of the
-  other, so e.g. "Петра Коваленка" (genitive) or "Петром Коваленком"
-  (instrumental) in a draft still matches a source's nominative "Петро
-  Коваленко" — same for a multi-word toponym like "Запорізькій області"
-  against "Запорізька область". Deliberately crude (a real lemmatizer needs
-  a dictionary this project has no budget for), not a general fuzzy-match: a
-  genuinely different name (even in an inflected case, e.g. "Олега
-  Петренка" when the source only has "Петро Коваленко") still fails every
-  stem comparison and is still flagged.
-- **Numbers from a source's title/URL, not just its summary**: the
-  `sourceTexts` built in both `draftFromEvent.ts` and `Articles.ts` now
-  include each `SourceItem.url` alongside `title`/`summary` — a figure the
-  model carried over from a source's headline or URL slug (a date-shaped
-  path segment, a procurement reference number) but never restated in the
-  summary prose is still recognized as supported, not flagged as invented.
+  `stemWord`) and requires the two resulting stems to be exactly equal
+  (`stemsMatch`), so e.g. "Петра Коваленка" (genitive) or "Петром
+  Коваленком" (instrumental) in a draft still matches a source's nominative
+  "Петро Коваленко" — same for a multi-word toponym like "Запорізькій
+  області" against "Запорізька область" (the "ь"-stripping rule in
+  `NAME_SUFFIXES` covers this soft-stem class specifically). Deliberately
+  crude (a real lemmatizer needs a dictionary this project has no budget
+  for), not a general fuzzy-match: a genuinely different name — even one
+  sharing a prefix with the source's, e.g. "Петро Коваленко" against a
+  source's "Петренко Коваленко-Шевчук", or "Іван Коваль" against "Іванна
+  Ковальчук" — still fails the equality check and is still flagged. (PO
+  review: the first cut of this rule had `stemsMatch` accept any shared
+  prefix regardless of length difference, which let exactly those
+  different-person cases through — fixed by requiring equality, at the cost
+  of a few genuinely-matching but differently-shaped stems, e.g.
+  "Віталія"/"Віталій", no longer being absorbed; see the sandbox
+  before/after table in the PR.)
+- **Numbers from a source's URL, compared by whole token — not folded into
+  the general text**: `draftFromEvent.ts`/`Articles.ts` pass each
+  `SourceItem.url` to `factCheckFlags()` as a separate `sourceUrls` argument
+  (`extractUrlNumberTokens`), never concatenated into `sourceTexts`. A
+  figure the model carried over from a source's domain/date-shaped URL
+  segment ("056.ua", ".../2026/11/09/...") but never restated in the title
+  or summary is still recognized as supported, matched by whole `\d+` token
+  only. This is deliberately not a substring check: folding the URL into the
+  same blob `sourceTexts` compares against meant a long numeric path id
+  ("3912458") could substring-"support" any unrelated short number baked
+  into it ("245", "39", ...) — a real false-negative PO review caught before
+  merge.
 - Currency/unit words ("грн" vs "гривень", "%" vs "відсотків") were never
   actually a false-positive source: `NUMBER_RE` only ever captures the
   digits themselves, never a trailing unit word, so this class needed no

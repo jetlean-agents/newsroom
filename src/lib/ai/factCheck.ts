@@ -12,7 +12,9 @@
  * and Ukrainian case endings on names/toponyms. None of this weakens the
  * actual-fabrication check: a number, date or name genuinely absent from
  * every source still flags, because every normalization below only widens
- * *what counts as the same value*, never skips the comparison itself.
+ * *what counts as the same value*, never skips the comparison itself (PO
+ * review tightened two over-wide first drafts of this rule — see
+ * `extractUrlNumberTokens` and `stemsMatch` below).
  */
 
 export type FactFlag = {
@@ -72,8 +74,10 @@ const MAGNITUDE_WORDS: { re: RegExp; factor: number }[] = [
   { re: new RegExp(`^мільярд[${UA_LOWER}]*`, 'i'), factor: 1_000_000_000 },
 ]
 
-/** Ukrainian noun-case endings, longest first so e.g. "ями" strips before "и". */
-const NAME_SUFFIXES = ['ами', 'ями', 'ові', 'еві', 'єві', 'ою', 'ею', 'ів', 'їв', 'им', 'ім', 'их', 'ій', 'ом', 'ем', 'а', 'я', 'у', 'ю', 'о', 'е', 'і', 'и'].sort(
+/** Ukrainian noun-case endings, longest first so e.g. "ями" strips before "и".
+ * "ь" covers soft-stem feminine nouns' nominative ("область") against their
+ * genitive/locative ("області", which strips to the same stem via "і"). */
+const NAME_SUFFIXES = ['ами', 'ями', 'ові', 'еві', 'єві', 'ою', 'ею', 'ів', 'їв', 'им', 'ім', 'их', 'ій', 'ом', 'ем', 'а', 'я', 'у', 'ю', 'о', 'е', 'і', 'и', 'ь'].sort(
   (a, b) => b.length - a.length,
 )
 const MIN_STEM_LENGTH = 3
@@ -190,9 +194,10 @@ function canonicalDateKeyForMatch(value: string): string | null {
  * long enough to be meaningful (FACT-379: "Запорізькій області" in a draft
  * must still match a source's "Запорізька область" nominative form). This is
  * deliberately crude — a real lemmatizer needs a dictionary this project has
- * no budget for — so matching below treats two stems as equal whenever one
- * is a prefix of the other (see `stemsMatch`), not strict equality, to
- * absorb what a single-suffix strip alone doesn't fully normalize.
+ * no budget for — so matching below (`stemsMatch`) requires the two
+ * resulting stems to be exactly equal, never just a shared prefix: a prefix
+ * check let "Іван" match "Іванна" and "Коваль" match "Ковальчук" (PO review,
+ * FACT-379) — different people, not case variants of the same name.
  */
 function stemWord(word: string): string {
   const lower = word.toLowerCase()
@@ -212,10 +217,7 @@ function tokenizeWords(text: string): string[] {
 }
 
 function stemsMatch(a: string, b: string): boolean {
-  if (a === b) return true
-  const minLen = Math.min(a.length, b.length)
-  if (minLen < MIN_STEM_LENGTH) return false
-  return a.slice(0, minLen) === b.slice(0, minLen)
+  return a === b
 }
 
 /**
@@ -243,17 +245,39 @@ function phraseSupportedByStem(phrase: string, haystackTokens: string[][]): bool
 }
 
 /**
+ * Whole-token numbers found in a source's URL ("056" in ".../056.ua/news/...",
+ * "2026" in ".../2026/11/09/..."), for supporting a number that only ever
+ * appeared in a URL's domain/date segment, never its title or summary. Not a
+ * substring check: `haystackDigitsOnly`'s plain `.includes()` would let any
+ * number that happens to be a substring of a long numeric path segment (an
+ * article id like "3912458") falsely "support" an unrelated short number
+ * ("245", "39", ...) baked into that id — a real false-negative PO review
+ * caught (FACT-379). `\d+` on the raw URL already yields whole runs of
+ * digits with no separators to strip, so this is exact-value comparison.
+ */
+function extractUrlNumberTokens(urls: string[]): Set<string> {
+  const tokens = new Set<string>()
+  for (const url of urls) {
+    for (const m of url.matchAll(/\d+/g)) tokens.add(m[0])
+  }
+  return tokens
+}
+
+/**
  * Returns every number/date/name found in `draftText` that isn't substring-present
  * (after normalization) in any of `sourceTexts` — candidates the author invented or
- * mis-transcribed.
+ * mis-transcribed. `sourceUrls` (FACT-379) is compared separately and only by whole
+ * numeric token (see `extractUrlNumberTokens`) — never folded into `sourceTexts`,
+ * which would let a long URL path id substring-"support" an unrelated short number.
  */
-export function factCheckFlags(draftText: string, sourceTexts: string[]): FactFlag[] {
+export function factCheckFlags(draftText: string, sourceTexts: string[], sourceUrls: string[] = []): FactFlag[] {
   const haystack = sourceTexts.map(normalizeForCompare)
   const haystackDigitsOnly = haystack.map(stripNumberSeparators)
   const haystackNumericEquivalents = new Set<number>()
   for (const source of sourceTexts) {
     for (const v of collectNumericEquivalents(source)) haystackNumericEquivalents.add(v)
   }
+  const urlNumberTokens = extractUrlNumberTokens(sourceUrls)
   const haystackDateKeys = new Set<string>()
   for (const source of sourceTexts) {
     for (const k of collectDateKeys(source)) haystackDateKeys.add(k)
@@ -267,6 +291,7 @@ export function factCheckFlags(draftText: string, sourceTexts: string[]): FactFl
     if (kind === 'number') {
       const strippedNeedle = stripNumberSeparators(needle)
       if (haystackDigitsOnly.some((source) => source.includes(strippedNeedle))) return true
+      if (urlNumberTokens.has(strippedNeedle)) return true
       const tail = draftText.slice(draftText.indexOf(value) + value.length)
       return numericEquivalents(value, tail).some((v) => haystackNumericEquivalents.has(v))
     }

@@ -176,15 +176,50 @@ describe('fact-check assist (FACT-236)', () => {
       const flags = factCheckFlags(draft, sources)
       expect(flags.some((f) => f.kind === 'name' && f.value === 'Олега Петренка')).toBe(true)
     })
+
+    // PO review (FACT-379): a plain prefix check let a genuinely different name
+    // with a shared prefix pass as "the same person, different case" — these
+    // confirm the fix without regressing the declension cases above.
+    it('still flags a different person whose first name happens to be a prefix of the source\'s (Іван vs Іванна)', () => {
+      const draft = 'Про це повідомив Іван Коваль, очевидець подій.'
+      const sourceText = ['Про це повідомила Іванна Ковальчук, свідок подій.']
+      const flags = factCheckFlags(draft, sourceText)
+      expect(flags.some((f) => f.kind === 'name' && f.value === 'Іван Коваль')).toBe(true)
+    })
+
+    it('still flags a different surname whose source form happens to be a prefix of the draft\'s (Коваленко vs Петренко Коваленко-Шевчук)', () => {
+      const draft = 'За словами Петро Коваленко, подробиці невідомі.'
+      const sourceText = ['За словами Петренко Коваленко-Шевчук, подробиці невідомі.']
+      const flags = factCheckFlags(draft, sourceText)
+      expect(flags.some((f) => f.kind === 'name' && f.value === 'Петро Коваленко')).toBe(true)
+    })
   })
 
-  it('supports a number that only appears in the source title/URL text passed in (not the summary)', () => {
-    // draftFromEvent.ts/Articles.ts build each source text from title+summary+url
-    // (FACT-379) — factCheckFlags itself is agnostic to where in that string the
-    // figure came from, so a figure the model carried over from a source's title
-    // or URL slug (never restated in the summary prose) is still recognized.
-    const draft = 'Пожежу вдалося загасити, постраждало 500 людей.'
-    const sources = ['Коротка новина https://example.test/news/2026/11/09/fire-500-injured']
-    expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+  describe('source URL numbers are matched by whole token, not substring (FACT-379 PO review)', () => {
+    it('supports a number that only appears as a whole token in a source URL', () => {
+      // draftFromEvent.ts/Articles.ts pass each source's url separately, never
+      // folded into sourceTexts — a domain-shaped path segment like "056.ua"
+      // legitimately supports a number the draft carried over from it.
+      const draft = 'За даними видання 056, severe weather warning.'
+      const sourceTexts = ['Коротка новина про погоду.']
+      const sourceUrls = ['https://056.ua/news/4169809/prognoz-pogodi']
+      expect(factCheckFlags(draft, sourceTexts, sourceUrls).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not let a long URL path id substring-support an unrelated short number', () => {
+      const draft = 'Загинули 245 людей.'
+      const sourceTexts = ['Постраждало 120 людей внаслідок аварії.']
+      const sourceUrls = ['https://056.ua/news/3912458/remont-dorohy']
+      const flags = factCheckFlags(draft, sourceTexts, sourceUrls)
+      expect(flags).toContainEqual({ value: '245', kind: 'number' })
+    })
+
+    it('does not let the same long URL path id support a different short number either', () => {
+      const draft = 'Загинули 39 людей.'
+      const sourceTexts = ['Постраждало 120 людей внаслідок аварії.']
+      const sourceUrls = ['https://056.ua/news/3912458/remont-dorohy']
+      const flags = factCheckFlags(draft, sourceTexts, sourceUrls)
+      expect(flags).toContainEqual({ value: '39', kind: 'number' })
+    })
   })
 })
