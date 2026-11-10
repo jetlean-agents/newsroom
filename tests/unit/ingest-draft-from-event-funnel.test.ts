@@ -211,4 +211,50 @@ describe('draftFromEvent funnel counters (FACT-362)', () => {
 
     vi.doUnmock('@/lib/env')
   })
+
+  // FACT-381 bug #3: a "groshi" (Гроші) draft whose own whatIsUnknown admits
+  // the key figures weren't extracted, and whose known text carries no
+  // digits at all, must never auto-publish — even with AUTO_PUBLISH on and
+  // every other gate (originality/factFlags/sensitivity) green.
+  it('never auto-publishes a number-sensitive (groshi) draft whose known text has no digits', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/env', () => ({
+      ORIGINALITY_MAX_OVERLAP: 0.5,
+      DRAFTS_PER_DAY: 20,
+      DRAFTS_PER_TICK: 20,
+      AUTO_PUBLISH: true,
+    }))
+    const { draftFromEvent: draftFromEventAutoPublish } = await import('@/jobs/ingest/draftFromEvent')
+
+    mockFind.mockImplementation(({ collection }: { collection: string }) => {
+      if (collection === 'events') return Promise.resolve({ docs: [makeEvent(1)] })
+      if (collection === 'source-items') {
+        return Promise.resolve({
+          docs: [{ title: 'Курс валют на 9 листопада', summary: 'Гривня посилиться.', url: 'https://x.test/a', source: { name: 'Outlet' }, published_at: '2026-11-09T18:00:00.000Z' }],
+        })
+      }
+      if (collection === 'rubrics') return Promise.resolve({ docs: [{ id: 5, slug: 'groshi' }] })
+      if (collection === 'users') return Promise.resolve({ docs: [{ id: 1 }] })
+      return Promise.resolve({ docs: [] })
+    })
+    mockGenerateDraft.mockResolvedValue({
+      title: 'Курс валют на 9 листопада',
+      lead: 'Гривня посилиться цими вихідними.',
+      paragraphs: ['Конкретні значення курсів у наданих фактах не зазначені.'],
+      whatIsKnown: '',
+      whatIsUnknown: 'Конкретні значення курсів у наданих фактах не зазначені, тому в цьому тексті їх навести неможливо.',
+      suggestedRubricSlug: 'groshi',
+      aiGenerated: true,
+    })
+    mockCreate.mockImplementation(({ data }: { data: { event: number } }) => Promise.resolve({ id: data.event }))
+    mockUpdate.mockResolvedValue({})
+
+    const result = await draftFromEventAutoPublish()
+
+    expect(result.drafted).toBe(1)
+    expect(result.autoPublished).toBe(0)
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'in_review' }) }))
+
+    vi.doUnmock('@/lib/env')
+  })
 })
