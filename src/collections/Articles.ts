@@ -1,7 +1,7 @@
 import type { CollectionConfig, PayloadRequest } from 'payload'
 import { APIError } from 'payload'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
-import { stableSlug } from '../lib/slug'
+import { stableSlug, uniqueSlug } from '../lib/slug'
 import { plainTextFromBody } from '../lib/richText'
 import { maxOverlap } from '../lib/ai/originality'
 import { factCheckFlags } from '../lib/ai/factCheck'
@@ -361,7 +361,28 @@ export const Articles: CollectionConfig = {
   hooks: {
     beforeChange: [
       async ({ req, data, originalDoc }) => {
-        data.slug = stableSlug(data.title, data.slug)
+        // `stableSlug` only returns a *candidate* here — a fresh draft's
+        // title (or its empty-slug hash fallback, see lib/slug.ts) can
+        // still collide with an already-published article's slug, which
+        // previously surfaced as the uninformative Payload validation error
+        // "The following field is invalid: slug" and dropped the whole
+        // draft (FACT-378 AC2). Only resolve against the DB when the slug is
+        // actually changing — an existing doc keeping its own slug must
+        // never treat itself as a collision.
+        const candidate = stableSlug(data.title, data.slug)
+        if (candidate !== originalDoc?.slug) {
+          data.slug = await uniqueSlug(candidate, async (s) => {
+            const existing = await req.payload.find({
+              collection: 'articles',
+              where: { slug: { equals: s } },
+              limit: 1,
+              depth: 0,
+            })
+            return existing.docs.some((doc) => doc.id !== originalDoc?.id)
+          })
+        } else {
+          data.slug = candidate
+        }
 
         enforceAiAssistedOwnership(req, data, originalDoc)
         enforceBreakingOwnership(req, data, originalDoc)
