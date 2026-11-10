@@ -7,6 +7,7 @@ import * as migration_20261109_170000_fact337_autoreg_sensitivity_spend from './
 import * as migration_20261109_190000_fact355_fix_sensitive_categories_columns from './20261109_190000_fact355_fix_sensitive_categories_columns';
 import * as migration_20261109_200000_fact345_sources_status from './20261109_200000_fact345_sources_status';
 import * as migration_20261109_200000_fact340_breaking from './20261109_200000_fact340_breaking';
+import * as migration_20261110_010000_fact362_fix_sensitive_categories_id_column from './20261110_010000_fact362_fix_sensitive_categories_id_column';
 
 export const migrations = [
   {
@@ -53,5 +54,10 @@ export const migrations = [
     up: migration_20261109_200000_fact340_breaking.up,
     down: migration_20261109_200000_fact340_breaking.down,
     name: '20261109_200000_fact340_breaking',
+  },
+  {
+    up: migration_20261110_010000_fact362_fix_sensitive_categories_id_column.up,
+    down: migration_20261110_010000_fact362_fix_sensitive_categories_id_column.down,
+    name: '20261110_010000_fact362_fix_sensitive_categories_id_column',
   },
 ];

@@ -223,6 +223,25 @@ right after creation, requires ALL of:
   - Either signal alone is enough to route to human review; only when BOTH
     say "not sensitive" does the gate proceed.
 
+**`articles_sensitive_categories` schema bug (FACT-362):** the root cause of
+the funnel going to zero every tick once a sensitive-topic event reached the
+front of the queue. FACT-337's migration created this child table with an
+`id varchar PRIMARY KEY NOT NULL` column, no default — copied from the
+array/block-field migration convention. But `sensitive_categories` is a
+top-level `select` field with `hasMany: true`, a different table shape
+entirely: Payload's own schema builder
+(`@payloadcms/drizzle/postgres/schema/setColumnID.js`) gives this kind of
+child table an auto-incrementing `id serial PRIMARY KEY` instead, and never
+writes a value for it from application code. The leftover NOT NULL varchar
+column with no default meant every insert of a non-empty
+`sensitive_categories` (i.e. every `sensitive: true` article) failed with
+"null value in column \"id\" ... violates not-null constraint" inside
+`draftFromEvent()`'s `payload.create()` call. Confirmed by reproducing a real
+`draftFromEvent()` tick against the shared dev Postgres both before and
+after `20261110_010000_fact362_fix_sensitive_categories_id_column`. FACT-355
+already fixed this table's `order`/`parent_id` column *names* but didn't
+touch this `id` column's type.
+
 A draft that fails any of the above simply stays `in_review` for a human —
 exactly the issue brief's "чувствительные темы... идут в /review", not a
 separate queue.
@@ -284,7 +303,14 @@ what's in the request.
 current draft text that don't appear in any source text — a "перевірити"
 pointer for the reviewing editor, stored as `Article.fact_flags[]` (same
 recompute-on-every-save, server-owned treatment as the overlap check above).
-Heuristic, non-blocking: it never stops a publish by itself.
+Heuristic, non-blocking by itself for a human editor — it only ever gates
+`AUTO_PUBLISH` (see below), never a manual publish. Number comparisons
+(`kind: 'number'`) also match across thousands-separator whitespace —
+"500 000" and "500000" are the same figure, just formatted differently
+(FACT-362: a procurement-style draft restating a source's sum with the
+idiomatic Ukrainian space separator was flagging every sum as "invented"
+even though none of them actually changed — `/review` numbers with this cause
+specifically are the ones this fixes, not a general loosening of the check).
 
 - `sources[]` is populated from every clustered item (title/url/publisher/accessed_at).
 - `ai_assisted`/`ai_disclosure` are set together: `ai_disclosure` carries the
@@ -384,6 +410,20 @@ admin session cookie) returns:
     `draftFromEvent()`'s own return value — `worker.ts` returns it from the
     `boss.work` handler so pg-boss persists it as the job's `output` column,
     instead of it only ever reaching `console.log`.
+    `error` (FACT-362 AC1 follow-up) carries a truncated, redacted
+    `{message, stack}` whenever the run itself failed outside any single
+    event: `draftFromEvent()`'s own `fatalError` (setup before the per-event
+    loop threw — see below), or, for an older/unrelated crash pg-boss itself
+    marked `failed` with no funnel output at all, pg-boss's own serialized
+    error. Every event's own failure (provider error, a bad write, a hook
+    rejection) is isolated by a per-event try/catch inside the loop and never
+    reaches this field — it only shows up in `skippedError`/
+    `skippedErrorReasons` instead, and the rest of that run's events still
+    get processed normally. Before this fix, one event failing anywhere past
+    the AI-provider call (e.g. an `articles_sensitive_categories` write
+    rejected by the DB) escaped the loop entirely and failed the *whole* run
+    with `drafted/autoPublished/skipped* = null` — exactly the "funnel goes
+    dark" failure mode this field and the per-event isolation both close.
   - `articlesBlockedBy`: how many stored articles each auto-publish gate
     (`isSensitive`, `originality_blocked`, a non-empty `fact_flags`) is
     currently flagging — independent of any single run, so a gate that's

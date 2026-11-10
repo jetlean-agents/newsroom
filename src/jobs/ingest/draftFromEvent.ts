@@ -162,191 +162,228 @@ function rubricDailyCap(): number {
  * leave it idle-in-transaction across calls and deadlock the next one
  * (Payload 3.37); each write here is already a single all-or-nothing op.
  */
+function errorReason(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * FACT-362 return shape, shared between the normal path and the
+ * all-setup-failed path below — declared up front so a thrown error before
+ * (or during) the per-event loop still has real counters to report instead
+ * of forcing pg-boss to fall back to its own job-level `output` (FACT-362
+ * AC1: a failed job showing `drafted/autoPublished/skipped* = null` is
+ * exactly the "воронка не видна" gap this return shape exists to close).
+ */
+function emptyFunnelCounts() {
+  return {
+    drafted: 0,
+    autoPublished: 0,
+    skippedBudget: 0,
+    skippedError: 0,
+    // Counts per error message (AC1: "skippedError с причиной") — grouped so
+    // the funnel report can tell *why* drafting failed, not just how many
+    // times; also where a per-event crash (AC2) lands instead of escaping
+    // the loop and failing the whole run.
+    skippedErrorReasons: {} as Record<string, number>,
+    skippedSpendLimit: 0,
+    skippedRubricCap: 0,
+  }
+}
+
 export async function draftFromEvent() {
-  const payload = await getPayloadClient()
-  const events = await payload.find({
-    collection: 'events',
-    where: { and: [{ status: { equals: 'new' } }, { independent_confirmation: { equals: true } }] },
-    limit: 200,
-  })
+  const counts = emptyFunnelCounts()
+  let eventsConsidered = 0
+  let providerName: string | null = null
 
-  const ranked = prioritizeEvents(
-    events.docs.map((e) => ({ id: e.id, sourceCount: e.source_count ?? 1, firstSeenAt: e.first_seen_at })),
-  )
-  const rankedEvents = ranked.map((r) => events.docs.find((e) => e.id === r.id)!)
-
-  const provider = getDraftProvider()
-  let budgetRemaining = Math.max(0, DRAFTS_PER_DAY - (await draftsCreatedToday()))
-
-  // Checked once per run, not per event: a mid-run spend update from another
-  // process wouldn't change this anyway, and it's one extra DB round trip
-  // worth skipping when AI_PROVIDER isn't even "anthropic" (none/mock never
-  // spend anything).
-  const spendExhausted = provider.name === 'anthropic' && (await spendLimitReached())
-  const rubricCounts = await draftsPerRubricToday()
-  const rubricCap = rubricDailyCap()
-
-  let drafted = 0
-  let autoPublished = 0
-  let skippedBudget = 0
-  let skippedError = 0
-  let skippedSpendLimit = 0
-  let skippedRubricCap = 0
-  // Counts per error message (FACT-362 AC1: "skippedError с причиной") —
-  // provider failures group by message (e.g. rate limit vs. malformed
-  // response) so the funnel report can tell *why* drafting failed, not just
-  // how many times.
-  const skippedErrorReasons: Record<string, number> = {}
-
-  for (const event of rankedEvents) {
-    if (budgetRemaining <= 0) {
-      skippedBudget++
-      continue
-    }
-    if (spendExhausted) {
-      skippedSpendLimit++
-      continue
-    }
-
-    const members = await payload.find({
-      collection: 'source-items',
-      where: { event: { equals: event.id } },
-      sort: 'published_at',
-      depth: 1,
-      limit: 50,
-    })
-    if (!members.docs.length) continue
-
-    const facts: DraftFact[] = members.docs.map((item) => ({
-      title: item.title,
-      summary: item.summary,
-      url: item.url,
-      publisher: typeof item.source === 'object' ? (item.source as Source).name : undefined,
-      publishedAt: item.published_at,
-    }))
-
-    let draft
-    try {
-      draft = await provider.generateDraft({ eventTitle: event.title, facts })
-    } catch (err) {
-      console.error(`[draftFromEvent] provider "${provider.name}" failed for event ${event.id}:`, err)
-      skippedError++
-      const reason = err instanceof Error ? err.message : String(err)
-      skippedErrorReasons[reason] = (skippedErrorReasons[reason] ?? 0) + 1
-      continue
-    }
-
-    const rubric = (await findRubricBySlug(draft.suggestedRubricSlug)) ?? (await getOrCreateFallbackRubric())
-
-    if ((rubricCounts.get(rubric.id) ?? 0) >= rubricCap) {
-      // This rubric already has its ~40%-of-the-day share (issue brief:
-      // "распределение по рубрикам, не больше ~40% в одной") — leave the
-      // event `new` for a later run once other rubrics have caught up or
-      // the daily cap resets, rather than drafting into an already-full
-      // rubric. Doesn't consume the DRAFTS_PER_DAY budget: no draft was made.
-      skippedRubricCap++
-      continue
-    }
-
-    const author = await getOrCreateSystemAuthor()
-    const tags = await getOrCreateTags(draft.tags)
-
-    const bodyText = [draft.lead, ...draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown].filter(Boolean).join('\n')
-    const sourceTexts = facts.map((f) => `${f.title} ${f.summary ?? ''}`)
-    const overlap = draft.aiGenerated ? maxOverlap(bodyText, sourceTexts) : 0
-    const originalityBlocked = overlap > ORIGINALITY_MAX_OVERLAP
-    const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts) : []
-
-    const sources = facts.map((f) => ({ title: f.title, url: f.url, publisher: f.publisher, accessed_at: f.publishedAt }))
-
-    // Sensitivity (FACT-337 scope item 4): the dictionary classifier plus
-    // whatever the same Anthropic call itself judged — never trust either
-    // signal alone (the dictionary catches keyword matches the model might
-    // soften around; the model catches phrasing a keyword list can't see).
-    const sensitivity = classifySensitivity(bodyText)
-    const isSensitive = sensitivity.sensitive || !!draft.sensitive
-
-    // `anthropic` writes a complete, publish-ready article (not a digest an
-    // author still has to write from scratch like none/mock) — it goes
-    // straight into the fast review queue (/review) instead of sitting in
-    // `draft` waiting for someone to claim it, matching the issue brief's
-    // "чувствительные темы... идут в /review".
-    const isAnthropicPipeline = provider.name === 'anthropic' && draft.aiGenerated
-    const initialStatus: 'draft' | 'in_review' = isAnthropicPipeline ? 'in_review' : 'draft'
-
-    const eligibleForAutoPublish =
-      AUTO_PUBLISH && isAnthropicPipeline && !originalityBlocked && factFlags.length === 0 && !isSensitive
-
-    const article = await payload.create({
-      collection: 'articles',
-      data: {
-        title: draft.title,
-        lead: draft.lead,
-        body: buildLexicalBody(draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown),
-        content_type: 'news',
-        rubric: rubric.id,
-        tags: tags.map((t) => t.id),
-        event: event.id,
-        event_date: members.docs[0].published_at || members.docs[0].fetched_at,
-        sources,
-        status: initialStatus,
-        author: author.id,
-        drafted_at: new Date().toISOString(),
-        ai_assisted: draft.aiGenerated,
-        ai_disclosure: draft.aiGenerated
-          ? isAnthropicPipeline
-            ? 'Цей матеріал повністю згенеровано AI (Claude) на основі фактів і посилань нижче.'
-            : 'Цей чернетковий матеріал згенеровано за допомогою AI з фактів нижче і перевірений редактором перед публікацією.'
-          : undefined,
-        originality_overlap: overlap,
-        originality_blocked: originalityBlocked,
-        fact_flags: factFlags,
-        ai_cost_usd: draft.costUsd ?? null,
-      },
-      disableTransaction: true,
-    })
-
-    await payload.update({
+  try {
+    const payload = await getPayloadClient()
+    const events = await payload.find({
       collection: 'events',
-      id: event.id,
-      data: { status: 'drafted', draft_article: article.id },
-      disableTransaction: true,
+      where: { and: [{ status: { equals: 'new' } }, { independent_confirmation: { equals: true } }] },
+      limit: 200,
     })
-    drafted++
-    budgetRemaining--
-    rubricCounts.set(rubric.id, (rubricCounts.get(rubric.id) ?? 0) + 1)
+    eventsConsidered = events.docs.length
 
-    if (eligibleForAutoPublish) {
+    const ranked = prioritizeEvents(
+      events.docs.map((e) => ({ id: e.id, sourceCount: e.source_count ?? 1, firstSeenAt: e.first_seen_at })),
+    )
+    const rankedEvents = ranked.map((r) => events.docs.find((e) => e.id === r.id)!)
+
+    const provider = getDraftProvider()
+    providerName = provider.name
+    let budgetRemaining = Math.max(0, DRAFTS_PER_DAY - (await draftsCreatedToday()))
+
+    // Checked once per run, not per event: a mid-run spend update from another
+    // process wouldn't change this anyway, and it's one extra DB round trip
+    // worth skipping when AI_PROVIDER isn't even "anthropic" (none/mock never
+    // spend anything).
+    const spendExhausted = provider.name === 'anthropic' && (await spendLimitReached())
+    const rubricCounts = await draftsPerRubricToday()
+    const rubricCap = rubricDailyCap()
+
+    for (const event of rankedEvents) {
+      if (budgetRemaining <= 0) {
+        counts.skippedBudget++
+        continue
+      }
+      if (spendExhausted) {
+        counts.skippedSpendLimit++
+        continue
+      }
+
+      // FACT-362 AC2: one event's failure — a provider error, a bad DB write,
+      // a hook rejection on auto-publish, anything — must never take the rest
+      // of this run's events down with it. Previously only the provider call
+      // was guarded; a crash anywhere else here (e.g. Articles.ts rejecting
+      // the publish-transition, or a connection left in a bad state by the
+      // write right before it) escaped the loop entirely and failed the
+      // whole job with no events drafted at all.
       try {
-        const autoEditor = await getOrCreateAutoEditor()
-        await payload.update({
+        const members = await payload.find({
+          collection: 'source-items',
+          where: { event: { equals: event.id } },
+          sort: 'published_at',
+          depth: 1,
+          limit: 50,
+        })
+        if (!members.docs.length) continue
+
+        const facts: DraftFact[] = members.docs.map((item) => ({
+          title: item.title,
+          summary: item.summary,
+          url: item.url,
+          publisher: typeof item.source === 'object' ? (item.source as Source).name : undefined,
+          publishedAt: item.published_at,
+        }))
+
+        const draft = await provider.generateDraft({ eventTitle: event.title, facts })
+
+        const rubric = (await findRubricBySlug(draft.suggestedRubricSlug)) ?? (await getOrCreateFallbackRubric())
+
+        if ((rubricCounts.get(rubric.id) ?? 0) >= rubricCap) {
+          // This rubric already has its ~40%-of-the-day share (issue brief:
+          // "распределение по рубрикам, не больше ~40% в одной") — leave the
+          // event `new` for a later run once other rubrics have caught up or
+          // the daily cap resets, rather than drafting into an already-full
+          // rubric. Doesn't consume the DRAFTS_PER_DAY budget: no draft was made.
+          counts.skippedRubricCap++
+          continue
+        }
+
+        const author = await getOrCreateSystemAuthor()
+        const tags = await getOrCreateTags(draft.tags)
+
+        const bodyText = [draft.lead, ...draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown].filter(Boolean).join('\n')
+        const sourceTexts = facts.map((f) => `${f.title} ${f.summary ?? ''}`)
+        const overlap = draft.aiGenerated ? maxOverlap(bodyText, sourceTexts) : 0
+        const originalityBlocked = overlap > ORIGINALITY_MAX_OVERLAP
+        const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts) : []
+
+        const sources = facts.map((f) => ({ title: f.title, url: f.url, publisher: f.publisher, accessed_at: f.publishedAt }))
+
+        // Sensitivity (FACT-337 scope item 4): the dictionary classifier plus
+        // whatever the same Anthropic call itself judged — never trust either
+        // signal alone (the dictionary catches keyword matches the model might
+        // soften around; the model catches phrasing a keyword list can't see).
+        const sensitivity = classifySensitivity(bodyText)
+        const isSensitive = sensitivity.sensitive || !!draft.sensitive
+
+        // `anthropic` writes a complete, publish-ready article (not a digest an
+        // author still has to write from scratch like none/mock) — it goes
+        // straight into the fast review queue (/review) instead of sitting in
+        // `draft` waiting for someone to claim it, matching the issue brief's
+        // "чувствительные темы... идут в /review".
+        const isAnthropicPipeline = provider.name === 'anthropic' && draft.aiGenerated
+        const initialStatus: 'draft' | 'in_review' = isAnthropicPipeline ? 'in_review' : 'draft'
+
+        const eligibleForAutoPublish =
+          AUTO_PUBLISH && isAnthropicPipeline && !originalityBlocked && factFlags.length === 0 && !isSensitive
+
+        const article = await payload.create({
           collection: 'articles',
-          id: article.id,
-          data: { status: 'published' },
-          context: { autoPublish: true, autoEditorId: autoEditor.id },
+          data: {
+            title: draft.title,
+            lead: draft.lead,
+            body: buildLexicalBody(draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown),
+            content_type: 'news',
+            rubric: rubric.id,
+            tags: tags.map((t) => t.id),
+            event: event.id,
+            event_date: members.docs[0].published_at || members.docs[0].fetched_at,
+            sources,
+            status: initialStatus,
+            author: author.id,
+            drafted_at: new Date().toISOString(),
+            ai_assisted: draft.aiGenerated,
+            ai_disclosure: draft.aiGenerated
+              ? isAnthropicPipeline
+                ? 'Цей матеріал повністю згенеровано AI (Claude) на основі фактів і посилань нижче.'
+                : 'Цей чернетковий матеріал згенеровано за допомогою AI з фактів нижче і перевірений редактором перед публікацією.'
+              : undefined,
+            originality_overlap: overlap,
+            originality_blocked: originalityBlocked,
+            fact_flags: factFlags,
+            ai_cost_usd: draft.costUsd ?? null,
+          },
           disableTransaction: true,
         })
-        autoPublished++
+
+        await payload.update({
+          collection: 'events',
+          id: event.id,
+          data: { status: 'drafted', draft_article: article.id },
+          disableTransaction: true,
+        })
+        counts.drafted++
+        budgetRemaining--
+        rubricCounts.set(rubric.id, (rubricCounts.get(rubric.id) ?? 0) + 1)
+
+        if (eligibleForAutoPublish) {
+          try {
+            const autoEditor = await getOrCreateAutoEditor()
+            await payload.update({
+              collection: 'articles',
+              id: article.id,
+              data: { status: 'published' },
+              context: { autoPublish: true, autoEditorId: autoEditor.id },
+              disableTransaction: true,
+            })
+            counts.autoPublished++
+          } catch (err) {
+            // Defense in depth: the publish-transition guard in Articles.ts
+            // (originality_blocked, in_review -> published only) re-checks
+            // everything above independently. A rejection here just means the
+            // article stays in_review for a human — never a reason to fail the
+            // whole run.
+            console.error(`[draftFromEvent] auto-publish rejected for article ${article.id}:`, err)
+          }
+        }
       } catch (err) {
-        // Defense in depth: the publish-transition guard in Articles.ts
-        // (originality_blocked, in_review -> published only) re-checks
-        // everything above independently. A rejection here just means the
-        // article stays in_review for a human — never a reason to fail the
-        // whole run.
-        console.error(`[draftFromEvent] auto-publish rejected for article ${article.id}:`, err)
+        console.error(`[draftFromEvent] event ${event.id} failed:`, err)
+        counts.skippedError++
+        const reason = errorReason(err)
+        counts.skippedErrorReasons[reason] = (counts.skippedErrorReasons[reason] ?? 0) + 1
       }
+    }
+  } catch (err) {
+    // Setup before the loop (payload/events/provider/budget lookups) failing
+    // is rare but not impossible — still return real counters instead of
+    // throwing out of draftFromEvent() and leaving worker.ts's `boss.work`
+    // handler to reject, which is what used to turn an entire run into a
+    // pg-boss `failed` job with no funnel numbers at all (AC1).
+    console.error('[draftFromEvent] run failed before/outside the per-event loop:', err)
+    return {
+      eventsConsidered,
+      ...counts,
+      provider: providerName,
+      fatalError: { message: errorReason(err), stack: err instanceof Error ? err.stack ?? null : null },
     }
   }
 
   return {
-    eventsConsidered: events.docs.length,
-    drafted,
-    autoPublished,
-    skippedBudget,
-    skippedError,
-    skippedErrorReasons,
-    skippedSpendLimit,
-    skippedRubricCap,
-    provider: provider.name,
+    eventsConsidered,
+    ...counts,
+    provider: providerName,
+    fatalError: null,
   }
 }
