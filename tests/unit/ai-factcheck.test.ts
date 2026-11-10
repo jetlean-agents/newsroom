@@ -32,4 +32,25 @@ describe('fact-check assist (FACT-236)', () => {
     const flags = factCheckFlags(draft, sources)
     expect(flags.some((f) => f.kind === 'date')).toBe(true)
   })
+
+  describe('thousands-separator formatting (FACT-362)', () => {
+    it('does not flag the same sum re-formatted with a space separator', () => {
+      const draft = 'Комунальне підприємство оголосило тендер на суму 500 000 грн для закупівлі обладнання.'
+      const procurementSources = ['Оголошено тендер на суму 500000 грн для закупівлі обладнання, повідомляє Prozorro.']
+      expect(factCheckFlags(draft, procurementSources)).toEqual([])
+    })
+
+    it('does not flag the same sum when the source has the space separator and the draft does not', () => {
+      const draft = 'Тендер на суму 500000 грн.'
+      const procurementSources = ['Оголошено тендер на суму 500 000 грн, повідомляє Prozorro.']
+      expect(factCheckFlags(draft, procurementSources)).toEqual([])
+    })
+
+    it('still flags a genuinely different sum, not just a differently-formatted one', () => {
+      const draft = 'Тендер на суму 700 000 грн.'
+      const procurementSources = ['Оголошено тендер на суму 500000 грн, повідомляє Prozorro.']
+      const flags = factCheckFlags(draft, procurementSources)
+      expect(flags).toContainEqual({ value: '700 000', kind: 'number' })
+    })
+  })
 })

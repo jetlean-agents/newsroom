@@ -20,6 +20,17 @@ export interface DraftFunnelRun {
   skippedSpendLimit: number | null
   skippedRubricCap: number | null
   provider: string | null
+  /**
+   * Set when the run itself failed outside any single event (FACT-362 AC1) —
+   * either `draftFromEvent()`'s own `fatalError` (setup before the loop threw,
+   * see draftFromEvent.ts) or, for a run pg-boss marked `failed` with no
+   * funnel output at all (e.g. a crash from before this fix shipped, or one
+   * outside draftFromEvent()'s own try/catch), pg-boss's own serialized
+   * error. `message` is truncated and `stack` is only its first 5 lines, with
+   * common secret-shaped substrings (API keys, bearer tokens) redacted —
+   * never a reason to assume this is safe to paste somewhere more public.
+   */
+  error: { message: string; stack: string | null } | null
 }
 
 export interface IngestStatus {
@@ -54,6 +65,47 @@ export interface IngestStatus {
       factFlags: number
     }
   }
+}
+
+const SECRET_LIKE_RE = /\b(sk-ant-[a-z0-9_-]{8,}|bearer\s+[\w.-]{10,}|[a-z0-9_-]{24,})\b/gi
+
+/** Defense-in-depth redaction (FACT-362 AC1: "без секретов и промптов") — never a guarantee. */
+function redact(text: string): string {
+  return text.replace(SECRET_LIKE_RE, '[redacted]')
+}
+
+function truncateMessage(message: string): string {
+  return redact(message).slice(0, 500)
+}
+
+function truncateStack(stack: string): string {
+  return redact(stack).split('\n').slice(0, 5).join('\n')
+}
+
+/**
+ * A failed/errored run's error, with message/stack short and redacted enough
+ * to post in an issue comment or show an admin without exec/log access
+ * (FACT-362 AC1). Two shapes land here:
+ * - `output.fatalError` — draftFromEvent()'s own field when setup before the
+ *   per-event loop threw (draftFromEvent.ts); the run still completes `job`-
+ *   wise with real counters, this is just the extra context.
+ * - pg-boss's own serialized error (`output.message`/`output.stack`, via the
+ *   `serialize-error` package) for a run pg-boss itself marked `failed` with
+ *   no funnel output at all — e.g. a crash from before this fix shipped, or
+ *   one outside draftFromEvent()'s own try/catch (a worker.ts-level bug).
+ */
+export function extractError(output: Record<string, unknown>, state: string): DraftFunnelRun['error'] {
+  const fatal = output.fatalError as { message?: string; stack?: string | null } | null | undefined
+  if (fatal?.message) {
+    return { message: truncateMessage(fatal.message), stack: fatal.stack ? truncateStack(fatal.stack) : null }
+  }
+  if (state === 'failed' && typeof output.message === 'string') {
+    return {
+      message: truncateMessage(output.message),
+      stack: typeof output.stack === 'string' ? truncateStack(output.stack) : null,
+    }
+  }
+  return null
 }
 
 /**
@@ -137,6 +189,7 @@ export async function getIngestStatus(): Promise<IngestStatus> {
       skippedSpendLimit: (output.skippedSpendLimit as number) ?? null,
       skippedRubricCap: (output.skippedRubricCap as number) ?? null,
       provider: (output.provider as string) ?? null,
+      error: extractError(output, row.state),
     }
   })
 
