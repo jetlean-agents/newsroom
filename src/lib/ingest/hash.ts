@@ -34,14 +34,28 @@ export function titleHash(title: string): string {
 
 const SIMHASH_BITS = 64
 
+/** A token that is nothing but digits ("27", "2026") — see `simhash` below. */
+function isBareNumber(token: string): boolean {
+  return /^\d+$/.test(token)
+}
+
 /**
  * 64-bit simhash over normalized word tokens (unigrams, not shingles): since
  * normalizeTitle already drops stopwords and sorts the remaining words,
  * hashing per-word rather than per-adjacent-pair keeps the result robust to a
  * single word being added/removed/reordered by a paraphrasing outlet.
+ *
+ * Bare-numeric tokens ("27", "2026") are excluded from the hash entirely
+ * (FACT-381 bug #4): a sum or date is one of a small universe of short
+ * strings, so two otherwise-unrelated headlines that merely cite the same
+ * amount ("27 млн грн" lost-forest sale vs. unrelated grid-equipment
+ * purchase) were landing within NEAR_DUPLICATE_THRESHOLD and getting
+ * clustered into the same event purely on that coincidence. A title that is
+ * genuinely the same story keeps clustering correctly on its remaining,
+ * actually-distinctive words (names, places, nouns).
  */
 export function simhash(text: string): bigint {
-  const tokens = normalizeTitle(text).split(' ').filter(Boolean)
+  const tokens = normalizeTitle(text).split(' ').filter(Boolean).filter((tok) => !isBareNumber(tok))
 
   const weights = new Array<number>(SIMHASH_BITS).fill(0)
   for (const token of tokens) {

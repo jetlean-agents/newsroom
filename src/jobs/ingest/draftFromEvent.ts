@@ -5,11 +5,36 @@ import { factCheckFlags } from '@/lib/ai/factCheck'
 import { classifySensitivity } from '@/lib/ai/sensitivity'
 import { spendLimitReached } from '@/lib/ai/spendGuard'
 import { prioritizeEvents } from '@/lib/review/priority'
+import { classifyFallbackRubric, validRubricSlugOrNull } from '@/lib/ai/rubricClassifier'
 import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY, DRAFTS_PER_TICK, AUTO_PUBLISH } from '@/lib/env'
 import { SYSTEM_AUTHOR_EMAIL, AUTO_EDITOR_EMAIL, AUTO_EDITOR_NAME } from '@/lib/ingest/systemAuthor'
 import type { Source, Rubric, Tag } from '@/payload-types'
 
 const DEFAULT_RUBRIC_SLUG = 'bez-rubryky'
+
+/**
+ * Rubrics where a reader expects a concrete figure (exchange rate, fuel
+ * price, tariff) — the ones FACT-381 bug #3 QA caught publishing an empty
+ * "дані не зазначені" draft. Scoped narrowly (not every article, which
+ * mostly has no reason to carry a digit at all) so this gate only ever
+ * blocks the specific "promised a number, delivered none" failure mode.
+ */
+const NUMBER_SENSITIVE_RUBRIC_SLUGS = new Set(['groshi'])
+const MIN_UNKNOWN_LENGTH_TO_FLAG = 20
+
+/**
+ * True when the draft itself all but admits it couldn't extract the figures
+ * its rubric is supposed to carry: a non-trivial "what's unknown" section
+ * (the model's own gap admission) combined with zero digits anywhere in the
+ * substantive ("known") text. Only ever computed for aiGenerated drafts in
+ * NUMBER_SENSITIVE_RUBRIC_SLUGS — see draftFromEvent's call site.
+ */
+export function hasNumericGap(rubricSlug: string, draft: { lead: string; paragraphs: string[]; whatIsKnown: string; whatIsUnknown: string }): boolean {
+  if (!NUMBER_SENSITIVE_RUBRIC_SLUGS.has(rubricSlug)) return false
+  if ((draft.whatIsUnknown ?? '').trim().length < MIN_UNKNOWN_LENGTH_TO_FLAG) return false
+  const knownText = [draft.lead, ...draft.paragraphs, draft.whatIsKnown].filter(Boolean).join(' ')
+  return !/\d/.test(knownText)
+}
 
 async function getOrCreateFallbackRubric() {
   const payload = await getPayloadClient()
@@ -18,7 +43,7 @@ async function getOrCreateFallbackRubric() {
   return payload.create({ collection: 'rubrics', data: { title: 'Без рубрики' }, disableTransaction: true })
 }
 
-async function findRubricBySlug(slug: string | undefined): Promise<Rubric | null> {
+async function findRubricBySlug(slug: string | undefined | null): Promise<Rubric | null> {
   if (!slug) return null
   const payload = await getPayloadClient()
   const existing = await payload.find({ collection: 'rubrics', where: { slug: { equals: slug } }, limit: 1 })
@@ -269,7 +294,16 @@ export async function draftFromEvent() {
 
         const draft = await provider.generateDraft({ eventTitle: event.title, facts })
 
-        const rubric = (await findRubricBySlug(draft.suggestedRubricSlug)) ?? (await getOrCreateFallbackRubric())
+        // FACT-381 bug #2: never fall through to "Без рубрики" — a model
+        // slug outside the closed RUBRICS_CONFIG set (or missing entirely)
+        // goes through the keyword fallback classifier first, which always
+        // resolves to a real rubric; getOrCreateFallbackRubric() is only a
+        // last-resort safety net if that rubric somehow isn't seeded yet.
+        const validSuggestedSlug = validRubricSlugOrNull(draft.suggestedRubricSlug)
+        const rubric =
+          (await findRubricBySlug(validSuggestedSlug)) ??
+          (await findRubricBySlug(classifyFallbackRubric(`${event.title} ${draft.title} ${draft.lead} ${draft.paragraphs.join(' ')}`))) ??
+          (await getOrCreateFallbackRubric())
 
         if ((rubricCounts.get(rubric.id) ?? 0) >= rubricCap) {
           // This rubric already has its ~40%-of-the-day share (issue brief:
@@ -311,8 +345,15 @@ export async function draftFromEvent() {
         const isAnthropicPipeline = provider.name === 'anthropic' && draft.aiGenerated
         const initialStatus: 'draft' | 'in_review' = isAnthropicPipeline ? 'in_review' : 'draft'
 
+        // FACT-381 bug #3: a number-sensitive rubric (groshi: rates, prices,
+        // tariffs) whose own "what's unknown" admits the key figures weren't
+        // extracted must never auto-publish as if it were a complete article
+        // — it stays in_review (initialStatus above already routes it there)
+        // for a human to either source the real numbers or drop the draft.
+        const insufficientFacts = draft.aiGenerated && hasNumericGap(rubric.slug ?? '', draft)
+
         const eligibleForAutoPublish =
-          AUTO_PUBLISH && isAnthropicPipeline && !originalityBlocked && factFlags.length === 0 && !isSensitive
+          AUTO_PUBLISH && isAnthropicPipeline && !originalityBlocked && factFlags.length === 0 && !isSensitive && !insufficientFacts
 
         const article = await payload.create({
           collection: 'articles',

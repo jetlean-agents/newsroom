@@ -38,6 +38,12 @@ describe('simhash / hammingDistance', () => {
     const text = 'Курс гривні залишився стабільним'
     expect(hammingDistance(simhash(text), simhash(text))).toBe(0)
   })
+
+  it('unrelated headlines that only share a sum/number stay above the threshold (FACT-381 bug #4)', () => {
+    const a = simhash('У Львові закупили нову техніку для ремонту електромереж за 27 млн грн')
+    const b = simhash('Ліс, який намагалися повернути державі, продають у Брюховичах за 27 млн грн')
+    expect(hammingDistance(a, b)).toBeGreaterThan(NEAR_DUPLICATE_THRESHOLD)
+  })
 })
 
 describe('normalizeTitle', () => {

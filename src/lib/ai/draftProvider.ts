@@ -1,6 +1,7 @@
 import { AI_PROVIDER, AI_MODEL, AI_API_KEY } from '@/lib/env'
 import { resolveAnthropicKey, reportUsage } from '@/lib/autoreg/client'
 import { estimateCostUsd } from '@/lib/ai/pricing'
+import { RUBRICS_CONFIG } from '@/lib/rubricsConfig'
 
 /**
  * One fact the draft is allowed to use — only fields SourceItems is allowed to
@@ -108,6 +109,16 @@ export class MockDraftProvider implements DraftProvider {
   }
 }
 
+/**
+ * FACT-381 bug #2: the prompt never told the model which rubrics exist, so
+ * it free-formed `suggestedRubricSlug` and frequently guessed a slug that
+ * matched nothing — silently falling through to "Без рубрики" in
+ * draftFromEvent.ts. Listing the closed set here means a valid pick is the
+ * common case; `classifyFallbackRubric` (src/lib/ai/rubricClassifier.ts)
+ * only has to cover the rare miss, never the default path.
+ */
+const RUBRIC_OPTIONS_BLOCK = RUBRICS_CONFIG.map((r) => `${r.slug} — ${r.title} (${r.description})`).join('\n')
+
 const ANTHROPIC_SYSTEM_PROMPT = `Ти — редакційний асистент українського новинного сайту. Пишеш короткий чернетковий матеріал
 українською мовою виключно на основі наданих фактів (заголовок, стислий виклад, посилання, видавець, дата) кожного джерела.
 
@@ -120,6 +131,10 @@ const ANTHROPIC_SYSTEM_PROMPT = `Ти — редакційний асистен�
   медицина, обвинення людей, смерті/катастрофи. Якщо хоча б одна застосовна —
   "sensitive": true і перелічи категорії в "sensitiveCategories"
   (значення лише з: "war_safety", "politics", "medicine", "accusations", "deaths_disasters").
+- "suggestedRubricSlug" МАЄ бути одним із цих slug'ів (обери найбільш підходящий —
+  завжди обирай реальну рубрику, навіть для погоди/свят/побутових тем, ніколи не
+  залишай тему без рубрики):
+${RUBRIC_OPTIONS_BLOCK}
 
 Відповідай ЛИШЕ JSON без жодного тексту навколо, у форматі:
 {"title": string, "lead": string, "paragraphs": string[3..6], "whatIsKnown": string, "whatIsUnknown": string, "suggestedRubricSlug": string, "tags": string[], "sensitive": boolean, "sensitiveCategories": string[]}`
