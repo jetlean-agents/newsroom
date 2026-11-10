@@ -27,14 +27,30 @@ function normalizeForCompare(value: string): string {
 }
 
 /**
+ * Collapses thousands-separator whitespace out of a number — "500 000" and
+ * "500000" are the same figure, just formatted differently (FACT-362: a
+ * Prozorro-style procurement draft restating a source's sum with the
+ * idiomatic Ukrainian space separator was flagging every single sum as
+ * "invented", even though none of them actually changed). Only applied to
+ * `kind: 'number'` comparisons — dates/names keep exact whitespace matching.
+ */
+function stripNumberSeparators(value: string): string {
+  return value.replace(/\s+/g, '')
+}
+
+/**
  * Returns every number/date/name found in `draftText` that isn't substring-present
  * in any of `sourceTexts` — candidates the author invented or mis-transcribed.
  */
 export function factCheckFlags(draftText: string, sourceTexts: string[]): FactFlag[] {
   const haystack = sourceTexts.map(normalizeForCompare)
-  const isSupported = (value: string) => {
+  const haystackDigitsOnly = haystack.map(stripNumberSeparators)
+  const isSupported = (value: string, kind: FactFlag['kind']) => {
     const needle = normalizeForCompare(value)
-    return haystack.some((source) => source.includes(needle))
+    if (haystack.some((source) => source.includes(needle))) return true
+    if (kind !== 'number') return false
+    const strippedNeedle = stripNumberSeparators(needle)
+    return haystackDigitsOnly.some((source) => source.includes(strippedNeedle))
   }
 
   const flags: FactFlag[] = []
@@ -44,7 +60,7 @@ export function factCheckFlags(draftText: string, sourceTexts: string[]): FactFl
     for (const value of values) {
       const key = `${kind}:${normalizeForCompare(value)}`
       if (seen.has(key)) continue
-      if (isSupported(value)) continue
+      if (isSupported(value, kind)) continue
       seen.add(key)
       flags.push({ value, kind })
     }

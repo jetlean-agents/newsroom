@@ -116,4 +116,53 @@ describe('draftFromEvent funnel counters (FACT-362)', () => {
     expect(result.skippedErrorReasons).toEqual({ 'rate limited': 2, 'malformed response': 1 })
     expect(result.drafted).toBe(0)
   })
+
+  it('isolates a crash in one event (article create throws) from the rest of the run (FACT-362 AC2)', async () => {
+    mockFind.mockImplementation(({ collection }: { collection: string }) => {
+      if (collection === 'events') return Promise.resolve({ docs: [makeEvent(1), makeEvent(2), makeEvent(3)] })
+      if (collection === 'source-items') {
+        return Promise.resolve({
+          docs: [{ title: 'T', summary: 'S', url: 'https://x.test/a', source: { name: 'Outlet' }, published_at: '2026-11-09T18:00:00.000Z' }],
+        })
+      }
+      if (collection === 'rubrics') return Promise.resolve({ docs: [{ id: 1, slug: 'bez-rubryky' }] })
+      if (collection === 'users') return Promise.resolve({ docs: [{ id: 1 }] })
+      return Promise.resolve({ docs: [] })
+    })
+    mockGenerateDraft.mockImplementation((input: { eventTitle: string }) => Promise.resolve({
+      title: input.eventTitle,
+      lead: 'lead',
+      paragraphs: ['p1'],
+      whatIsKnown: '',
+      whatIsUnknown: '',
+      aiGenerated: false,
+    }))
+    // Event 2's write poisons that one event only — a bad DB write, a hook
+    // rejection, anything at `payload.create` — the kind of failure that used
+    // to escape the loop entirely and fail the whole run with zero drafts.
+    mockCreate.mockImplementation(({ data }: { data: { event: number } }) => {
+      if (data.event === 2) throw new Error('duplicate key value violates unique constraint')
+      return Promise.resolve({ id: data.event })
+    })
+    mockUpdate.mockResolvedValue({})
+
+    const result = await draftFromEvent()
+
+    expect(result.drafted).toBe(2) // events 1 and 3
+    expect(result.skippedError).toBe(1)
+    expect(result.skippedErrorReasons).toEqual({ 'duplicate key value violates unique constraint': 1 })
+    expect(result.fatalError).toBeNull()
+  })
+
+  it('reports a fatalError instead of throwing when setup before the loop fails (FACT-362 AC1)', async () => {
+    mockFind.mockImplementation(({ collection }: { collection: string }) => {
+      if (collection === 'events') throw new Error('connection terminated unexpectedly')
+      return Promise.resolve({ docs: [] })
+    })
+
+    const result = await draftFromEvent()
+
+    expect(result.fatalError).toEqual({ message: 'connection terminated unexpectedly', stack: expect.any(String) })
+    expect(result.drafted).toBe(0)
+  })
 })
