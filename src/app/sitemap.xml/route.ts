@@ -16,10 +16,18 @@ export async function GET() {
   // been drafted into yet) has nothing to show at its hub URL and must not be
   // listed — the hub page itself answers `noindex` for the same reason (see
   // [rubric]/page.tsx generateMetadata).
-  const publishedRubricIds = new Set(
-    articles.docs.filter((a) => typeof a.rubric === 'object').map((a) => (a.rubric as { id: number | string }).id),
+  //
+  // FACT-382 PO review (PR #31): counted per rubric via `payload.count`
+  // (only 12 rubrics) rather than derived from the `articles` list above,
+  // which is capped at 1000 — a rubric whose only published articles are
+  // older than the newest 1000 across the whole site would otherwise drop
+  // out of the sitemap even though it isn't actually empty.
+  const rubricCounts = await Promise.all(
+    rubrics.docs.map((r) =>
+      payload.count({ collection: 'articles', where: { and: [{ status: { equals: 'published' } }, { rubric: { equals: r.id } }] } }),
+    ),
   )
-  const nonEmptyRubrics = rubrics.docs.filter((r) => publishedRubricIds.has(r.id))
+  const nonEmptyRubrics = rubrics.docs.filter((_, i) => rubricCounts[i].totalDocs > 0)
 
   // Only canonical, indexable (page 1) rubric hubs + articles — never tags
   // (thin until TAG_NOINDEX_THRESHOLD) or pagination page 2+ (tech-spec.md §5).
