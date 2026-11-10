@@ -40,6 +40,7 @@ vi.mock('@/lib/ai/factCheck', () => ({ factCheckFlags: vi.fn().mockReturnValue([
 vi.mock('@/lib/env', () => ({
   ORIGINALITY_MAX_OVERLAP: 0.5,
   DRAFTS_PER_DAY: 20,
+  DRAFTS_PER_TICK: 20,
   AUTO_PUBLISH: false,
 }))
 
@@ -164,5 +165,50 @@ describe('draftFromEvent funnel counters (FACT-362)', () => {
 
     expect(result.fatalError).toEqual({ message: 'connection terminated unexpectedly', stack: expect.any(String) })
     expect(result.drafted).toBe(0)
+  })
+
+  // FACT-379: DRAFTS_PER_TICK caps a single tick well below the remaining
+  // DRAFTS_PER_DAY budget, so a backlog of confirmed events doesn't all draft
+  // in the same tick (sandbox measurement, FACT-341: one tick drafted 39,
+  // then the rest of the day sat at skippedBudget with nothing left).
+  it('counts skippedTickCap once DRAFTS_PER_TICK is reached, leaving the daily budget untouched', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/env', () => ({
+      ORIGINALITY_MAX_OVERLAP: 0.5,
+      DRAFTS_PER_DAY: 20,
+      DRAFTS_PER_TICK: 1,
+      AUTO_PUBLISH: false,
+    }))
+    const { draftFromEvent: draftFromEventWithTickCap } = await import('@/jobs/ingest/draftFromEvent')
+
+    mockFind.mockImplementation(({ collection }: { collection: string }) => {
+      if (collection === 'events') return Promise.resolve({ docs: [makeEvent(1), makeEvent(2), makeEvent(3)] })
+      if (collection === 'source-items') {
+        return Promise.resolve({
+          docs: [{ title: 'T', summary: 'S', url: 'https://x.test/a', source: { name: 'Outlet' }, published_at: '2026-11-09T18:00:00.000Z' }],
+        })
+      }
+      if (collection === 'rubrics') return Promise.resolve({ docs: [{ id: 1, slug: 'bez-rubryky' }] })
+      if (collection === 'users') return Promise.resolve({ docs: [{ id: 1 }] })
+      return Promise.resolve({ docs: [] })
+    })
+    mockGenerateDraft.mockImplementation((input: { eventTitle: string }) => Promise.resolve({
+      title: input.eventTitle,
+      lead: 'lead',
+      paragraphs: ['p1'],
+      whatIsKnown: '',
+      whatIsUnknown: '',
+      aiGenerated: false,
+    }))
+    mockCreate.mockImplementation(({ data }: { data: { event: number } }) => Promise.resolve({ id: data.event }))
+    mockUpdate.mockResolvedValue({})
+
+    const result = await draftFromEventWithTickCap()
+
+    expect(result.drafted).toBe(1)
+    expect(result.skippedTickCap).toBe(2)
+    expect(result.skippedBudget).toBe(0)
+
+    vi.doUnmock('@/lib/env')
   })
 })

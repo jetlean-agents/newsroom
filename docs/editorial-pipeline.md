@@ -284,7 +284,24 @@ every 10 minutes (`src/jobs/worker.ts`); reaching the epic's "≥30
 published/day" target needs `DRAFTS_PER_DAY` raised to >= 40 via env (see
 `docs/env.md`) once this is deployed with `AUTO_PUBLISH=true` — left as an
 env knob, not a code default, since it also governs the none/mock
-human-review flow. No single rubric can take more than ~40% of that daily
+human-review flow.
+
+`DRAFTS_PER_TICK` (FACT-379) caps how many drafts a single tick creates —
+default `ceil(DRAFTS_PER_DAY / 144)`, 144 being ticks/day at `*/10 * * * *`
+— so a backlog of confirmed events spreads across the whole day instead of
+burning the entire `DRAFTS_PER_DAY` budget in the first tick or two (sandbox
+measurement, FACT-341 10.11 01:22 UTC: one tick drafted 39, then
+`skippedBudget 89` for the rest of the day with the pipeline otherwise idle).
+Once a tick hits its own cap, remaining events stay `new` and are counted as
+`skippedTickCap` — distinct from `skippedBudget` (the *daily* cap), so the
+funnel (`GET /api/ingest/status`, below) can tell "today's budget is spent"
+from "this tick's budget is spent, more left today" apart. Within whatever a
+tick's cap allows, events with more independent sources and a fresher
+first-seen timestamp are still drafted first (`prioritizeEvents()`,
+`src/lib/review/priority.ts`) — `DRAFTS_PER_TICK` only changes *how much* of
+the ranked queue a tick works through, never the ranking itself.
+
+No single rubric can take more than ~40% of that daily
 budget (`rubricDailyCap()` in `draftFromEvent.ts`): once a rubric hits its
 share, its events stay `new` for a later run (or the next day's reset)
 instead of drafting into an already-full rubric — this doesn't consume the
@@ -327,6 +344,68 @@ Heuristic, non-blocking by itself for a human editor — it only ever gates
 idiomatic Ukrainian space separator was flagging every sum as "invented"
 even though none of them actually changed — `/review` numbers with this cause
 specifically are the ones this fixes, not a general loosening of the check).
+
+**Normalization (FACT-379)**: a sandbox measurement (FACT-341, 10.11 01:22
+UTC) found `fact_flags` blocking 27 of 53 `/review` items, the bulk of them
+formatting-only differences rather than invented facts. None of the following
+weakens the actual-fabrication check — each only widens *what counts as the
+same value*, never skips the comparison:
+
+- **Number magnitude words**: "1,5 тисячі" / "500 мільйонів" / "2 млрд" (and
+  their abbreviations "тис."/"млн"/"млрд") resolve to the actual value (1500
+  / 500000000 / 2000000000) and compare against a source spelling the same
+  figure out in full, in either direction. The decimal comma ("1,5") is
+  parsed as a decimal point the same way — this locale never uses comma as a
+  thousands separator, only the idiomatic space does (same assumption
+  `stripNumberSeparators` already made for FACT-362).
+- **Digit vs. written-out Ukrainian dates**: "9 листопада" (optionally with a
+  year, "2026" or "2026 року") and "09.11"/"09.11.2026" both canonicalize to
+  a year-less `MM-DD` key and compare against every date found anywhere in
+  the sources, digit or written. Dropping the year from the comparison key is
+  deliberate — both of those forms routinely omit it when it's the current
+  year, so requiring an exact year match would reintroduce the same
+  false-positive class this fixes; a genuinely different day or month still
+  produces a different key and is still flagged.
+- **Ukrainian case endings on names/toponyms**: `kind: 'name'` matching
+  strips one trailing Ukrainian noun-case suffix per word (`factCheck.ts`
+  `stemWord`) and requires the two resulting stems to be exactly equal
+  (`stemsMatch`), so e.g. "Петра Коваленка" (genitive) or "Петром
+  Коваленком" (instrumental) in a draft still matches a source's nominative
+  "Петро Коваленко" — same for a multi-word toponym like "Запорізькій
+  області" against "Запорізька область" (the "ь"-stripping rule in
+  `NAME_SUFFIXES` covers this soft-stem class specifically). Deliberately
+  crude (a real lemmatizer needs a dictionary this project has no budget
+  for), not a general fuzzy-match: a genuinely different name — even one
+  sharing a prefix with the source's, e.g. "Петро Коваленко" against a
+  source's "Петренко Коваленко-Шевчук", or "Іван Коваль" against "Іванна
+  Ковальчук" — still fails the equality check and is still flagged. (PO
+  review: the first cut of this rule had `stemsMatch` accept any shared
+  prefix regardless of length difference, which let exactly those
+  different-person cases through — fixed by requiring equality, at the cost
+  of a few genuinely-matching but differently-shaped stems, e.g.
+  "Віталія"/"Віталій", no longer being absorbed; see the sandbox
+  before/after table in the PR.)
+- **Numbers from a source's URL, compared by whole token — not folded into
+  the general text**: `draftFromEvent.ts`/`Articles.ts` pass each
+  `SourceItem.url` to `factCheckFlags()` as a separate `sourceUrls` argument
+  (`extractUrlNumberTokens`), never concatenated into `sourceTexts`. A
+  figure the model carried over from a source's domain/date-shaped URL
+  segment ("056.ua", ".../2026/11/09/...") but never restated in the title
+  or summary is still recognized as supported, matched by whole `\d+` token
+  only. This is deliberately not a substring check: folding the URL into the
+  same blob `sourceTexts` compares against meant a long numeric path id
+  ("3912458") could substring-"support" any unrelated short number baked
+  into it ("245", "39", ...) — a real false-negative PO review caught before
+  merge.
+- Currency/unit words ("грн" vs "гривень", "%" vs "відсотків") were never
+  actually a false-positive source: `NUMBER_RE` only ever captures the
+  digits themselves, never a trailing unit word, so this class needed no
+  code change — noted here only because the issue brief called it out as a
+  class to check.
+
+See `tests/unit/ai-factcheck.test.ts` (`FACT-379` describe blocks) for the
+before/after cases, including the still-flagged fabricated-figure/date/name
+cases that confirm none of the above weakens real fabrication detection.
 
 - `sources[]` is populated from every clustered item (title/url/publisher/accessed_at).
 - `ai_assisted`/`ai_disclosure` are set together: `ai_disclosure` carries the
@@ -422,7 +501,10 @@ admin session cookie) returns:
   - `draftFromEventRuns`: the last 20 `ingest-draft-from-event` pg-boss runs
     (`job` + `archive`), each with `drafted`, `autoPublished`,
     `skippedBudget`, `skippedError` + `skippedErrorReasons` (grouped by error
-    message), `skippedSpendLimit`, `skippedRubricCap`, and `provider`. This is
+    message), `skippedSpendLimit`, `skippedRubricCap`, `skippedTickCap`
+    (FACT-379: `DRAFTS_PER_TICK` already reached this tick, distinct from
+    `skippedBudget` which means the *daily* `DRAFTS_PER_DAY` budget is spent),
+    and `provider`. This is
     `draftFromEvent()`'s own return value — `worker.ts` returns it from the
     `boss.work` handler so pg-boss persists it as the job's `output` column,
     instead of it only ever reaching `console.log`.
@@ -445,6 +527,15 @@ admin session cookie) returns:
     currently flagging — independent of any single run, so a gate that's
     unusually trigger-happy (see the dictionary false-positive fix below)
     shows up as a number, not a guess.
+  - `last24h` (FACT-379 AC3): `drafted`/`autoPublished` summed from every
+    `ingest-draft-from-event` run that completed in the last 24h (not just
+    the last 20 rows above — the 10-minute schedule means ~144 runs/day, so
+    20 rows is only the last ~3h) plus `autoPublishRate`
+    (`autoPublished / drafted`, `null` when nothing drafted in the window),
+    and `articlesBlockedBy` with the same three gates as above but scoped to
+    articles whose `drafted_at` falls in the last 24h — a day-over-day
+    "is the gate getting noisier" signal that the all-time `articlesBlockedBy`
+    above, diluted by months of already-resolved articles, can't give.
 
 See `src/jobs/ingest/ingestStatus.ts`. Any handler-level crash in
 `ingest-poll-source` (bad job payload, a bug before `pollSource` even runs)

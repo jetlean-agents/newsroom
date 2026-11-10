@@ -53,4 +53,173 @@ describe('fact-check assist (FACT-236)', () => {
       expect(flags).toContainEqual({ value: '700 000', kind: 'number' })
     })
   })
+
+  // FACT-379: sandbox measurement (FACT-341, 10.11 01:22 UTC) found fact_flags
+  // blocking 27 of 53 /review items, most of them formatting-only differences
+  // rather than invented facts — number magnitude words, written-vs-digit
+  // dates, and Ukrainian case endings on names/toponyms. Each group below is
+  // "було" (flagged before this fix) / "стало" (clean now); the last group
+  // re-confirms genuinely fabricated numbers/dates/names still flag.
+  describe('number magnitude words + decimal comma (FACT-379)', () => {
+    it('does not flag "1,5 тисячі" against a source spelling the figure out in full', () => {
+      const draft = 'Загалом на місце виїхали 1,5 тисячі рятувальників.'
+      const sources = ['У заході були залучені 1500 рятувальників.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not flag "500 мільйонів" against a bare-digit source figure', () => {
+      const draft = 'Бюджет програми складає 500 мільйонів гривень.'
+      const sources = ['Бюджет програми - 500000000 гривень, повідомляє Мінфін.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not flag a bare-digit draft figure against a source using "мільйона"', () => {
+      const draft = 'Сума контракту становить 1500000 грн.'
+      const sources = ['Оголошено тендер на суму 1,5 мільйона грн, повідомляє Prozorro.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not flag the abbreviated "млрд" form against a bare-digit source figure', () => {
+      const draft = 'Збитки оцінюють у 2 млрд грн.'
+      const sources = ['Попередні збитки склали 2000000000 грн.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not flag the abbreviated "тис." form against a bare-digit source figure', () => {
+      const draft = 'На ремонт дороги витратили 3 тис. грн.'
+      const sources = ['На ремонт дороги виділено 3000 грн з бюджету.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not flag a decimal magnitude figure against a bare-digit source figure', () => {
+      const draft = 'Населення міста - 10,2 тисячі осіб.'
+      const sources = ['За даними перепису, в місті проживає 10200 осіб.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not flag a magnitude figure against a source using the opposite separator+magnitude combination', () => {
+      const draft = 'Тендер оголошено на суму 500 000 грн.'
+      const sources = ['Оголошено тендер на суму 500 тисяч гривень, повідомляє Prozorro.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('still flags a genuinely different magnitude figure, not just a differently-formatted one', () => {
+      const draft = 'Загалом залучили 2,5 тисячі волонтерів.'
+      const sources = ['У заході взяли участь 1500 волонтерів.']
+      expect(factCheckFlags(draft, sources)).toContainEqual({ value: '2,5', kind: 'number' })
+    })
+  })
+
+  describe('digit vs. written-out Ukrainian dates (FACT-379)', () => {
+    it('does not flag a bare digit date (no year) against a written-form source date', () => {
+      const draft = 'Подія сталася 09.11.'
+      const sources = ['Подія сталася 9 листопада, повідомляє очевидець.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'date')).toBe(false)
+    })
+
+    it('does not flag a written-form date against a source digit date that also carries a year', () => {
+      const draft = 'Подія сталася 9 листопада.'
+      const sources = ['Подія сталася 09.11.2026, повідомляє поліція.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'date')).toBe(false)
+    })
+
+    it('does not flag a written-form date with a year against a bare digit source date', () => {
+      const draft = 'Подія сталася 9 листопада 2026 року.'
+      const sources = ['Подія сталася 09.11, повідомляє поліція.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'date')).toBe(false)
+    })
+
+    it('does not flag a single-digit-day digit date against a written-form source date', () => {
+      const draft = 'Подія сталася 5.11.'
+      const sources = ['Подія сталася 5 листопада, повідомляє очевидець.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'date')).toBe(false)
+    })
+
+    it('does not flag a bare digit date against a written-form source date with "року"', () => {
+      const draft = 'Подія сталася 09.11.'
+      const sources = ['Подія сталася 9 листопада 2026 року, повідомляє поліція.']
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'date')).toBe(false)
+    })
+
+    it('still flags a genuinely different date, not just a differently-formatted one', () => {
+      const draft = 'Подія сталася 15 листопада.'
+      const sources = ['Подія сталася 9 листопада, повідомляє очевидець.']
+      expect(factCheckFlags(draft, sources)).toContainEqual({ value: '15 листопада', kind: 'date' })
+    })
+  })
+
+  describe('Ukrainian case endings on names/toponyms (FACT-379)', () => {
+    const sources = ['Про це повідомив Петро Коваленко, речник ДСНС Запорізької області.']
+
+    it('does not flag a genitive-case inflection of a name present in the sources', () => {
+      const draft = 'За словами Петра Коваленка, ситуація під контролем.'
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'name')).toBe(false)
+    })
+
+    it('does not flag a dative-case inflection of a name present in the sources', () => {
+      const draft = 'Журналісти подякували Петру Коваленку за коментар.'
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'name')).toBe(false)
+    })
+
+    it('does not flag an instrumental-case inflection of a name present in the sources', () => {
+      const draft = 'Інтерв’ю було записано Петром Коваленком особисто.'
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'name')).toBe(false)
+    })
+
+    it('does not flag a locative-case inflection of a toponym present in the sources', () => {
+      const draft = 'У Запорізькій області оголосили повітряну тривогу.'
+      expect(factCheckFlags(draft, sources).some((f) => f.kind === 'name')).toBe(false)
+    })
+
+    it('still flags a genuinely different (fabricated) name, even in an inflected case', () => {
+      const draft = 'За словами Олега Петренка, ситуація під контролем.'
+      const flags = factCheckFlags(draft, sources)
+      expect(flags.some((f) => f.kind === 'name' && f.value === 'Олега Петренка')).toBe(true)
+    })
+
+    // PO review (FACT-379): a plain prefix check let a genuinely different name
+    // with a shared prefix pass as "the same person, different case" — these
+    // confirm the fix without regressing the declension cases above.
+    it('still flags a different person whose first name happens to be a prefix of the source\'s (Іван vs Іванна)', () => {
+      const draft = 'Про це повідомив Іван Коваль, очевидець подій.'
+      const sourceText = ['Про це повідомила Іванна Ковальчук, свідок подій.']
+      const flags = factCheckFlags(draft, sourceText)
+      expect(flags.some((f) => f.kind === 'name' && f.value === 'Іван Коваль')).toBe(true)
+    })
+
+    it('still flags a different surname whose source form happens to be a prefix of the draft\'s (Коваленко vs Петренко Коваленко-Шевчук)', () => {
+      const draft = 'За словами Петро Коваленко, подробиці невідомі.'
+      const sourceText = ['За словами Петренко Коваленко-Шевчук, подробиці невідомі.']
+      const flags = factCheckFlags(draft, sourceText)
+      expect(flags.some((f) => f.kind === 'name' && f.value === 'Петро Коваленко')).toBe(true)
+    })
+  })
+
+  describe('source URL numbers are matched by whole token, not substring (FACT-379 PO review)', () => {
+    it('supports a number that only appears as a whole token in a source URL', () => {
+      // draftFromEvent.ts/Articles.ts pass each source's url separately, never
+      // folded into sourceTexts — a domain-shaped path segment like "056.ua"
+      // legitimately supports a number the draft carried over from it.
+      const draft = 'За даними видання 056, severe weather warning.'
+      const sourceTexts = ['Коротка новина про погоду.']
+      const sourceUrls = ['https://056.ua/news/4169809/prognoz-pogodi']
+      expect(factCheckFlags(draft, sourceTexts, sourceUrls).some((f) => f.kind === 'number')).toBe(false)
+    })
+
+    it('does not let a long URL path id substring-support an unrelated short number', () => {
+      const draft = 'Загинули 245 людей.'
+      const sourceTexts = ['Постраждало 120 людей внаслідок аварії.']
+      const sourceUrls = ['https://056.ua/news/3912458/remont-dorohy']
+      const flags = factCheckFlags(draft, sourceTexts, sourceUrls)
+      expect(flags).toContainEqual({ value: '245', kind: 'number' })
+    })
+
+    it('does not let the same long URL path id support a different short number either', () => {
+      const draft = 'Загинули 39 людей.'
+      const sourceTexts = ['Постраждало 120 людей внаслідок аварії.']
+      const sourceUrls = ['https://056.ua/news/3912458/remont-dorohy']
+      const flags = factCheckFlags(draft, sourceTexts, sourceUrls)
+      expect(flags).toContainEqual({ value: '39', kind: 'number' })
+    })
+  })
 })

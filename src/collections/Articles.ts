@@ -80,6 +80,10 @@ async function recomputeOriginality(
     limit: 50,
   })
   const sourceTexts = members.docs.map((item: SourceItem) => `${item.title} ${item.summary ?? ''}`)
+  // URLs are compared separately, by whole numeric token only (FACT-379 PO
+  // review) — folding them into sourceTexts let a long URL path id
+  // ("3912458") substring-"support" an unrelated short number ("245").
+  const sourceUrls = members.docs.map((item: SourceItem) => item.url).filter((url): url is string => !!url)
 
   const title = data.title ?? originalDoc?.title ?? ''
   const lead = data.lead ?? originalDoc?.lead ?? ''
@@ -89,7 +93,7 @@ async function recomputeOriginality(
   const overlap = maxOverlap(bodyText, sourceTexts)
   data.originality_overlap = overlap
   data.originality_blocked = overlap > ORIGINALITY_MAX_OVERLAP
-  data.fact_flags = factCheckFlags(bodyText, sourceTexts)
+  data.fact_flags = factCheckFlags(bodyText, sourceTexts, sourceUrls)
 }
 
 /**

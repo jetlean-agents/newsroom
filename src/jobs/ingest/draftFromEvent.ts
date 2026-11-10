@@ -5,7 +5,7 @@ import { factCheckFlags } from '@/lib/ai/factCheck'
 import { classifySensitivity } from '@/lib/ai/sensitivity'
 import { spendLimitReached } from '@/lib/ai/spendGuard'
 import { prioritizeEvents } from '@/lib/review/priority'
-import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY, AUTO_PUBLISH } from '@/lib/env'
+import { ORIGINALITY_MAX_OVERLAP, DRAFTS_PER_DAY, DRAFTS_PER_TICK, AUTO_PUBLISH } from '@/lib/env'
 import { SYSTEM_AUTHOR_EMAIL, AUTO_EDITOR_EMAIL, AUTO_EDITOR_NAME } from '@/lib/ingest/systemAuthor'
 import type { Source, Rubric, Tag } from '@/payload-types'
 
@@ -156,7 +156,10 @@ function rubricDailyCap(): number {
  * - fact-check assist: fact_flags (src/lib/ai/factCheck.ts)
  * - queue prioritization: most-sourced, freshest events drafted first
  * - DRAFTS_PER_DAY cap so the review queue can't outgrow editor capacity
+ * - DRAFTS_PER_TICK cap (FACT-379) so DRAFTS_PER_DAY spreads across the day's
+ *   ticks instead of burning out in the first one or two
  *
+
  * `disableTransaction: true` on every write below for the same reason as
  * src/seed/index.ts: many sequential Local API calls on one connection can
  * leave it idle-in-transaction across calls and deadlock the next one
@@ -187,6 +190,9 @@ function emptyFunnelCounts() {
     skippedErrorReasons: {} as Record<string, number>,
     skippedSpendLimit: 0,
     skippedRubricCap: 0,
+    // This tick already drafted DRAFTS_PER_TICK articles — DRAFTS_PER_DAY
+    // budget remains, the event just waits for a later tick (FACT-379).
+    skippedTickCap: 0,
   }
 }
 
@@ -212,6 +218,7 @@ export async function draftFromEvent() {
     const provider = getDraftProvider()
     providerName = provider.name
     let budgetRemaining = Math.max(0, DRAFTS_PER_DAY - (await draftsCreatedToday()))
+    let tickRemaining = DRAFTS_PER_TICK
 
     // Checked once per run, not per event: a mid-run spend update from another
     // process wouldn't change this anyway, and it's one extra DB round trip
@@ -224,6 +231,10 @@ export async function draftFromEvent() {
     for (const event of rankedEvents) {
       if (budgetRemaining <= 0) {
         counts.skippedBudget++
+        continue
+      }
+      if (tickRemaining <= 0) {
+        counts.skippedTickCap++
         continue
       }
       if (spendExhausted) {
@@ -275,9 +286,13 @@ export async function draftFromEvent() {
 
         const bodyText = [draft.lead, ...draft.paragraphs, draft.whatIsKnown, draft.whatIsUnknown].filter(Boolean).join('\n')
         const sourceTexts = facts.map((f) => `${f.title} ${f.summary ?? ''}`)
+        // URLs are compared separately, by whole numeric token only (FACT-379
+        // PO review) — folding them into sourceTexts let a long URL path id
+        // ("3912458") substring-"support" an unrelated short number ("245").
+        const sourceUrls = facts.map((f) => f.url).filter((url): url is string => !!url)
         const overlap = draft.aiGenerated ? maxOverlap(bodyText, sourceTexts) : 0
         const originalityBlocked = overlap > ORIGINALITY_MAX_OVERLAP
-        const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts) : []
+        const factFlags = draft.aiGenerated ? factCheckFlags(bodyText, sourceTexts, sourceUrls) : []
 
         const sources = facts.map((f) => ({ title: f.title, url: f.url, publisher: f.publisher, accessed_at: f.publishedAt }))
 
@@ -336,6 +351,7 @@ export async function draftFromEvent() {
         })
         counts.drafted++
         budgetRemaining--
+        tickRemaining--
         rubricCounts.set(rubric.id, (rubricCounts.get(rubric.id) ?? 0) + 1)
 
         if (eligibleForAutoPublish) {

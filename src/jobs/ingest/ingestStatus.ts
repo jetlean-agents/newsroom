@@ -19,6 +19,8 @@ export interface DraftFunnelRun {
   skippedErrorReasons: Record<string, number> | null
   skippedSpendLimit: number | null
   skippedRubricCap: number | null
+  /** DRAFTS_PER_TICK already reached this tick — DRAFTS_PER_DAY budget remains (FACT-379). */
+  skippedTickCap: number | null
   provider: string | null
   /**
    * Set when the run itself failed outside any single event (FACT-362 AC1) —
@@ -63,6 +65,26 @@ export interface IngestStatus {
       isSensitive: number
       originalityBlocked: number
       factFlags: number
+    }
+    /**
+     * FACT-379 AC3: share of auto-publications and blocking breakdown over the
+     * last 24h specifically — `articlesBlockedBy` above is an always-current
+     * snapshot of every stored article ever drafted, which dilutes a gate
+     * that just got noisier/quieter with months of old, already-resolved
+     * articles. `drafted`/`autoPublished` are summed from every
+     * `ingest-draft-from-event` run that completed in the last 24h (not just
+     * the 20 most recent — a run every 10 minutes is ~144/day, well past 20).
+     */
+    last24h: {
+      drafted: number
+      autoPublished: number
+      /** `autoPublished / drafted`, or `null` when nothing drafted in the window (avoid a 0/0 NaN). */
+      autoPublishRate: number | null
+      articlesBlockedBy: {
+        isSensitive: number
+        originalityBlocked: number
+        factFlags: number
+      }
     }
   }
 }
@@ -188,10 +210,13 @@ export async function getIngestStatus(): Promise<IngestStatus> {
       skippedErrorReasons: (output.skippedErrorReasons as Record<string, number>) ?? null,
       skippedSpendLimit: (output.skippedSpendLimit as number) ?? null,
       skippedRubricCap: (output.skippedRubricCap as number) ?? null,
+      skippedTickCap: (output.skippedTickCap as number) ?? null,
       provider: (output.provider as string) ?? null,
       error: extractError(output, row.state),
     }
   })
+
+  const last24hCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
   const [isSensitiveCount, originalityBlockedCount, factFlagsRows] = await Promise.all([
     payload.count({ collection: 'articles', where: { sensitive: { equals: true } } }).then((r) => r.totalDocs),
@@ -200,6 +225,40 @@ export async function getIngestStatus(): Promise<IngestStatus> {
     // `where`, so count distinct parents with at least one row via raw SQL.
     pool.query<{ count: number }>(`select count(distinct "_parent_id")::int as count from "articles_fact_flags"`),
   ])
+
+  const [isSensitiveLast24h, originalityBlockedLast24h, factFlagsLast24hRows] = await Promise.all([
+    payload
+      .count({ collection: 'articles', where: { and: [{ sensitive: { equals: true } }, { drafted_at: { greater_than_equal: last24hCutoff } }] } })
+      .then((r) => r.totalDocs),
+    payload
+      .count({
+        collection: 'articles',
+        where: { and: [{ originality_blocked: { equals: true } }, { drafted_at: { greater_than_equal: last24hCutoff } }] },
+      })
+      .then((r) => r.totalDocs),
+    pool.query<{ count: number }>(
+      `select count(distinct f."_parent_id")::int as count
+       from "articles_fact_flags" f
+       join "articles" a on a.id = f."_parent_id"
+       where a."drafted_at" >= $1`,
+      [last24hCutoff],
+    ),
+  ])
+
+  // Every `ingest-draft-from-event` run that completed in the last 24h, not
+  // just the 20 most recent (FACT-379 AC3) — the schedule is every 10
+  // minutes (~144/day), so 20 rows is only the last ~3h.
+  const { rows: last24hRunRows } = await pool.query<{ output: Record<string, unknown> | null }>(
+    `select output
+     from (
+       select completedon, output from pgboss.job where name = 'ingest-draft-from-event'
+       union all
+       select completedon, output from pgboss.archive where name = 'ingest-draft-from-event'
+     ) recent
+     where completedon >= now() - interval '24 hours'`,
+  )
+  const drafted24h = last24hRunRows.reduce((sum, row) => sum + ((row.output?.drafted as number) ?? 0), 0)
+  const autoPublished24h = last24hRunRows.reduce((sum, row) => sum + ((row.output?.autoPublished as number) ?? 0), 0)
 
   return {
     sources: { total, verifiedEnabled, polledLast24h, withErrors },
@@ -211,6 +270,16 @@ export async function getIngestStatus(): Promise<IngestStatus> {
         isSensitive: isSensitiveCount,
         originalityBlocked: originalityBlockedCount,
         factFlags: factFlagsRows.rows[0]?.count ?? 0,
+      },
+      last24h: {
+        drafted: drafted24h,
+        autoPublished: autoPublished24h,
+        autoPublishRate: drafted24h > 0 ? autoPublished24h / drafted24h : null,
+        articlesBlockedBy: {
+          isSensitive: isSensitiveLast24h,
+          originalityBlocked: originalityBlockedLast24h,
+          factFlags: factFlagsLast24hRows.rows[0]?.count ?? 0,
+        },
       },
     },
   }
